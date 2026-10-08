@@ -9,7 +9,7 @@
 
 上游 AlwaysStrong 的证明引擎是可替换的：模块脚本不直接调用引擎，而是通过
 一个适配层（`attest.sh`）。本仓库把适配层从 `attest/tee.sh`
-（TEESimulator-RS）换成了 `attest/omk.sh`（OhMyKeymint）。
+（TEESimulator-RS）换成了 `attest/omk.sh`（OhMyKeymint，本项目使用 ITxiao6666 分支）。
 
 ```
                  ┌──────────────────────────────┐

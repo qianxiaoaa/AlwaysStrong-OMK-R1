@@ -10,7 +10,7 @@
 # Called from action.sh (every press) and service.sh (hourly + first boot).
 # Idempotent: only rewrites module.prop if the prefix actually changed.
 
-URL="${STATUS_URL:-http://evoker.qzz.io/status}"
+URL="${STATUS_URL:-https://evoker.qzz.io/status}"
 MODPATH="${MODPATH:-/data/adb/modules/tricky_store}"
 PROP="$MODPATH/module.prop"
 BASE_FILE="$MODPATH/description.txt"
