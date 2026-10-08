@@ -7,6 +7,42 @@ MODPATH="${0%/*}"
 # playintegrityfix folder to create here — everything lives under our module.
 [ -f "$MODPATH/common_setup.sh" ] && . $MODPATH/common_setup.sh
 
+# --- OhMyKeymint runtime roots (must exist before keystore2 starts) --------
+# Creates /data/misc/keystore/omk (keystore-owned, 0770) and /data/adb/omk,
+# clears the stale pidfiles / restart flags, restores upstream's omkdata link,
+# and seeds keybox.xml + injector.toml for a fresh install. omk-sync.sh takes
+# over from there at the service stage.
+[ -f "$MODPATH/omk-early.sh" ] && sh "$MODPATH/omk-early.sh" 2>/dev/null
+
+# --- Pin the KeyMint instance OMK seals its boot-level key with -----------
+# OMK protects its whole store with a boot-level key, and which KeyMint instance
+# seals that key is inferred at every keymint start unless
+# ro.keystore.boot_level_key.strategy says otherwise (OMK's boot_key.rs probes
+# TEE first, then StrongBox). The inference is NOT stable on a device whose TEE
+# reports KeyMint < 4.1 while a StrongBox instance is also present: that path
+# asks StrongBox whether it is up yet, and we start keymint at the service
+# stage, before boot_completed. When the answer flips, the boot-level key blob
+# was sealed by the other instance and can no longer be decrypted, so keymint
+# dies with
+#   fatal startup error: failed to initialize boot-level key cache
+# and omk-daemon's recovery drops the entire store — every app key goes with it,
+# GMS's attestation keys included, which is what turns Play Integrity red.
+#
+# Pin the TEE: it is always present (StrongBox may not have registered yet) and
+# MAX_USES_PER_BOOT is understood by every KeyMint version, where EARLY_BOOT_ONLY
+# needs 4.1+. Only set it when the ROM left it unset — a value fixed at build
+# time is the vendor's decision and must not be overridden.
+#
+# The literal is exactly "LEVEL:STRATEGY" and both halves must be spelled this
+# way. Verified against the bundled engine, OhMyKeymint (ITxiao6666 1.3.5 fork):
+# src/keymaster/boot_key.rs parses it with split_once(':') and matches
+# "TRUSTED_ENVIRONMENT"/"STRONGBOX" and "EARLY_BOOT_ONLY"/"MAX_USES_PER_BOOT".
+# A bare MAX_USES_PER_BOOT without the colon is rejected ("Missing colon") and
+# falls back to inference — the unstable path this line exists to avoid.
+if [ -z "$(getprop ro.keystore.boot_level_key.strategy 2>/dev/null)" ]; then
+    resetprop ro.keystore.boot_level_key.strategy TRUSTED_ENVIRONMENT:MAX_USES_PER_BOOT 2>/dev/null || true
+fi
+
 # --- DenyList: intentionally NOT managed ---------------------------------
 # We must never force "Enforce DenyList" on. With Zygisk Next / ReZygisk /
 # NeoZygisk (the recommended setup) plus a hider like Shamiko, enforcement is

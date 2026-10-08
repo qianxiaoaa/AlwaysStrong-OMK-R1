@@ -16,10 +16,10 @@ import zipfile
 
 EXEC_PATTERNS = (
     re.compile(r"^[^/]+\.sh$"),
-    re.compile(r"^lib/[^/]+/lib.*\.so$"),
+    re.compile(r"^libs/[^/]+/(keymint|inject)$"),
     re.compile(r"^bin/[^/]+/(asfetch|aswatcher)$"),
 )
-EXEC_EXACT = {"daemon"}
+EXEC_EXACT = {"omk-daemon", "omk-injector"}
 
 ZIP_EPOCH = 315532800  # 1980-01-01, the earliest date the format can store
 

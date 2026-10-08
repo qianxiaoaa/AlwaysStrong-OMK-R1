@@ -1,1 +1,1 @@
-Strong Play Integrity in one drop-in module. TEESimulator-RS(ZeyolZZZ) + PlayIntegrityFork, multi-source keybox, auto-refreshed. Tap Action.
+Strong Play Integrity in one drop-in module. OhMyKeymint(ITxiao6666) + PlayIntegrityFork, multi-source keybox, auto-refreshed. Tap Action.

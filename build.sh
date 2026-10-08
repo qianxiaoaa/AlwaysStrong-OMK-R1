@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# AlwaysStrong-TEE build script.
+# AlwaysStrong-OMK build script.
 #
 # Assembles the flashable module ZIP out of three pieces:
 #
-#   module/                 our sources (AlwaysStrong + the TEESimulator-RS swap)
-#   attest/tee.sh           the attestation-engine adapter, overlaid as attest.sh
+#   module/                 our sources (AlwaysStrong v1.0.4 + the OhMyKeymint swap)
+#   attest/omk.sh           the attestation-engine adapter, overlaid as attest.sh
 #   native/*/prebuilt/      AlwaysStrong's own native helpers (asfetch, aswatcher)
 #
 # plus two upstream release payloads, which are never committed here:
 #
-#   TEESimulator-RS (ZeyolZZZ fix)   lib/<abi>/{libTEESimulator,libinject,
-#                                     libsupervisor,libcertgen}.so, classes.dex,
-#                                     keybox.xml
-#   PlayIntegrityFork v18             classes.dex, zygisk/*.so, the PIF scripts
+#   OhMyKeymint (ITxiao6666 fork)     libs/arm64-v8a/{keymint,inject},
+#                                       injector.toml, keybox.xml
+#   PlayIntegrityFork v18               classes.dex, zygisk/*.so, the PIF scripts
 #
 # Usage:
 #   ./build.sh                      download both payloads, then build
-#   ./build.sh --tee-file PATH      use a local TEESimulator-RS zip, skip the download
+#   ./build.sh --omk-file PATH      use a local OhMyKeymint zip, skip the download
 #   ./build.sh --pif-file PATH      use a local PlayIntegrityFork zip, skip the download
 #   ./build.sh --clean              wipe build/ and out/ first
 #
@@ -29,14 +28,13 @@ BUILD="$ROOT/build"
 STAGE="$BUILD/module"
 OUT="$ROOT/out"
 
-# Attestation engine: ZeyolZZZ/TEESimulator-RS-fix, a maintained fork of
-# Enginex0/JingMatrix's Rust TEESimulator-RS. Same release layout
-# (lib/<abi>/lib*.so + classes.dex + keybox.xml), so the module overlay is
-# engine-neutral; only the payload version is pinned here. Note the release tag
-# and the asset version deliberately differ upstream (asset carries the build).
-TEE_TAG="v6.0.1-305"
-TEE_ASSET="TEESimulator-RS-v6.0.1-310-Release.zip"
-TEE_URL="https://github.com/ZeyolZZZ/TEESimulator-RS-fix/releases/download/$TEE_TAG/$TEE_ASSET"
+# Attestation engine: the ITxiao6666 fork of OhMyKeymint, merged in place of
+# the unmaintained qwq233 1.2.0-preview build. Same release layout
+# (libs/<abi>/{keymint,inject} + injector.toml + keybox.xml), so the module
+# overlay does not change; only the payload version does.
+OMK_TAG="v1.3.5-200-3e76d3c"
+OMK_ASSET="OhMyKeymint-1.3.5-200-3e76d3c-release.zip"
+OMK_URL="https://github.com/ITxiao6666/OhMyKeymint/releases/download/$OMK_TAG/$OMK_ASSET"
 
 PIF_TAG="v18"
 PIF_ASSET="PlayIntegrityFork-v18.zip"
@@ -45,13 +43,12 @@ PIF_URL="https://github.com/osm0sis/PlayIntegrityFork/releases/download/$PIF_TAG
 # Files lifted out of the PlayIntegrityFork zip into the module.
 PIF_FILES="autopif4.sh killpi.sh migrate.sh common_setup.sh example.pif.prop app_replace_list.txt"
 
-# ABIs that get AlwaysStrong's native helpers. TEESimulator-RS itself covers all
-# four (see lib/<abi>/ in its release); the native asfetch/aswatcher helpers only
-# exist for the ABIs staged here.
+# ABIs that get AlwaysStrong's native helpers. OhMyKeymint itself is arm64-v8a
+# only, which is why attest/omk.sh aborts the install on any other ABI.
 ABIS="arm64-v8a armeabi-v7a x86 x86_64"
-TEE_ABI="arm64-v8a"
+OMK_ABI="arm64-v8a"
 
-TEE_FILE=""
+OMK_FILE=""
 PIF_FILE=""
 CLEAN=0
 
@@ -60,13 +57,13 @@ info() { echo "==> $*"; }
 ok()   { echo "    $*"; }
 
 usage() {
-    sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --tee-file) TEE_FILE="$2"; shift 2 ;;
+        --omk-file) OMK_FILE="$2"; shift 2 ;;
         --pif-file) PIF_FILE="$2"; shift 2 ;;
         --clean)    CLEAN=1; shift ;;
         -h|--help)  usage ;;
@@ -117,14 +114,14 @@ VERSION="$(sed -n 's/^version=//p' "$ROOT/module/module.prop" | head -n 1)"
 VERSION="${VERSION%% (*}"
 
 # ---------- 1) our own files ----------
-info "Staging module/ (AlwaysStrong $VERSION, TEESimulator-RS engine)"
+info "Staging module/ (AlwaysStrong $VERSION, OhMyKeymint engine)"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -a "$ROOT/module/." "$STAGE/"
 
 # The engine adapter is kept outside module/ so the swap stays visible.
-cp "$ROOT/attest/tee.sh" "$STAGE/attest.sh"
-ok "attestation engine: tee (attest/tee.sh -> attest.sh)"
+cp "$ROOT/attest/omk.sh" "$STAGE/attest.sh"
+ok "attestation engine: omk (attest/omk.sh -> attest.sh)"
 
 if [ -f "$ROOT/banner.png" ]; then
     cp "$ROOT/banner.png" "$STAGE/banner.png"
@@ -151,49 +148,43 @@ for abi in $ABIS; do
     done
 done
 
-# The module still needs the arm64-v8a helper on the devices that matter most, so
-# a missing arm64-v8a helper means the native/ layout moved and the zip would
-# silently ship without the fingerprint crawler or the watcher.
+# The module only installs on arm64-v8a (see attest/omk.sh), so a missing
+# arm64-v8a helper means the native/ layout moved and the zip would silently
+# ship without the fingerprint crawler or the watcher.
 for bin in asfetch aswatcher; do
-    [ -f "$STAGE/bin/$TEE_ABI/$bin" ] || die "native/$bin for $TEE_ABI was not staged — native/ layout changed"
+    [ -f "$STAGE/bin/$OMK_ABI/$bin" ] || die "native/$bin for $OMK_ABI was not staged — native/ layout changed"
 done
 ok "staged native helpers (asfetch, aswatcher)"
 
-# ---------- 2) TEESimulator-RS payload ----------
+# ---------- 2) OhMyKeymint payload ----------
 mkdir -p "$BUILD"
-TEE_ZIP="$BUILD/$TEE_ASSET"
-if [ -n "$TEE_FILE" ]; then
-    [ -f "$TEE_FILE" ] || die "--tee-file not found: $TEE_FILE"
-    TEE_ZIP="$TEE_FILE"
-    ok "local TEESimulator-RS zip: $TEE_ZIP"
-elif [ ! -f "$TEE_ZIP" ]; then
-    info "Downloading TEESimulator-RS $TEE_TAG"
-    fetch "$TEE_ZIP" "$TEE_URL"
+OMK_ZIP="$BUILD/$OMK_ASSET"
+if [ -n "$OMK_FILE" ]; then
+    [ -f "$OMK_FILE" ] || die "--omk-file not found: $OMK_FILE"
+    OMK_ZIP="$OMK_FILE"
+    ok "local OhMyKeymint zip: $OMK_ZIP"
+elif [ ! -f "$OMK_ZIP" ]; then
+    info "Downloading OhMyKeymint $OMK_TAG"
+    fetch "$OMK_ZIP" "$OMK_URL"
 fi
 
-TEE_X="$BUILD/tee_extracted"
-rm -rf "$TEE_X"; mkdir -p "$TEE_X"
-unzip -qq -o "$TEE_ZIP" -d "$TEE_X"
+OMK_X="$BUILD/omk_extracted"
+rm -rf "$OMK_X"; mkdir -p "$OMK_X"
+unzip -qq -o "$OMK_ZIP" -d "$OMK_X"
 
-[ -f "$TEE_X/classes.dex" ] || die "TEESimulator-RS zip missing classes.dex — upstream layout changed"
-[ -f "$TEE_X/lib/arm64-v8a/libTEESimulator.so" ] || die "TEESimulator-RS zip missing lib/arm64-v8a backup — upstream layout changed"
-[ -f "$TEE_X/lib/arm64-v8a/libinject.so" ] || die "TEESimulator-RS zip missing lib/arm64-v8a/libinject.so — upstream layout changed"
-[ -f "$TEE_X/lib/arm64-v8a/libsupervisor.so" ] || die "TEESimulator-RS zip missing lib/arm64-v8a/libsupervisor.so — upstream layout changed"
-
-mkdir -p "$STAGE/lib"
-for abi in $ABIS; do
-    [ -d "$TEE_X/lib/$abi" ] || continue
-    mkdir -p "$STAGE/lib/$abi"
-    cp "$TEE_X/lib/$abi"/*.so "$STAGE/lib/$abi/"
+for f in keymint inject; do
+    [ -f "$OMK_X/libs/$OMK_ABI/$f" ] || die "OhMyKeymint zip missing libs/$OMK_ABI/$f — upstream layout changed"
 done
+[ -f "$OMK_X/injector.toml" ] || die "OhMyKeymint zip missing injector.toml — upstream layout changed"
 
-# classes.dex is renamed so the engine dex never collides with PlayIntegrityFork's
-# classes.dex at the module root; module/daemon loads it under the new name.
-cp "$TEE_X/classes.dex" "$STAGE/tee_classes.dex"
+mkdir -p "$STAGE/libs/$OMK_ABI"
+cp "$OMK_X/libs/$OMK_ABI/keymint" "$STAGE/libs/$OMK_ABI/keymint"
+cp "$OMK_X/libs/$OMK_ABI/inject"  "$STAGE/libs/$OMK_ABI/inject"
+cp "$OMK_X/injector.toml"         "$STAGE/injector.toml"
 
 # Default keybox, used only when the user has none of their own.
-[ -f "$TEE_X/keybox.xml" ] && cp "$TEE_X/keybox.xml" "$STAGE/keybox.xml"
-ok "staged TEESimulator-RS payload"
+[ -f "$OMK_X/keybox.xml" ] && cp "$OMK_X/keybox.xml" "$STAGE/keybox.xml"
+ok "staged OhMyKeymint payload ($OMK_ABI)"
 
 # ---------- 3) PlayIntegrityFork payload ----------
 PIF_ZIP="$BUILD/$PIF_ASSET"
@@ -273,9 +264,9 @@ ok "every staged script has an installer ($(wc -l < "$NAMES_LIST" | tr -d ' ') n
 
 # ---------- 5) permissions + package ----------
 chmod 0755 "$STAGE"/*.sh 2>/dev/null || true
-chmod 0755 "$STAGE/daemon" 2>/dev/null || true
+chmod 0755 "$STAGE/omk-daemon" "$STAGE/omk-injector" 2>/dev/null || true
+chmod 0755 "$STAGE/libs/$OMK_ABI/keymint" "$STAGE/libs/$OMK_ABI/inject" 2>/dev/null || true
 for abi in $ABIS; do
-    [ -d "$STAGE/lib/$abi" ] && chmod 0755 "$STAGE/lib/$abi"/*.so 2>/dev/null || true
     chmod 0755 "$STAGE/bin/$abi/asfetch"  2>/dev/null || true
     chmod 0755 "$STAGE/bin/$abi/aswatcher" 2>/dev/null || true
 done

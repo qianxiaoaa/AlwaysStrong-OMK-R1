@@ -1,34 +1,34 @@
 #!/system/bin/sh
 # AlwaysStrong — keybox structure check.
 #
-# Answers one question: will TEESimulator-RS actually accept this file?
+# Answers one question: will OhMyKeymint actually accept this file?
 #
-# "It contains the string Keybox" is not that question. The engine parses the
-# document and refuses it when a key entry is incomplete; and a keybox it
-# refuses yields no usable hardware attestation chain — it falls back to a
-# software chain (DeviceID="sw"), which is not a real attestation chain.
+# "It contains the string Keybox" is not that question. keymint parses the
+# document and refuses it when a key entry is incomplete; and when it refuses
+# the file it does NOT keep the previous keybox — it rewrites its own bundled
+# template (the one with DeviceID="sw"), which is not a real attestation chain.
 # Every Play Integrity verdict then goes red, so a user who swapped in a
 # malformed keybox ends up strictly worse off than before they touched it: the
 # usual "keybox revoked" state is two green and one red (BASIC + DEVICE pass,
 # only STRONG fails), while a rejected keybox is three red.
 #
-# The checks below mirror what the engine enforces, in the order it complains:
+# The checks below mirror what keymint enforces, in the order it complains:
 #   * <AndroidAttestation> root carrying a <Keybox>
 #   * <NumberOfKeyboxes> >= 1
-#   * at least one <Key algorithm="rsa">  — without an RSA entry the engine logs
+#   * at least one <Key algorithm="rsa">  — without an RSA entry keymint logs
 #     "missing RSA key entry in keybox.xml" and rejects the whole file
 #   * every <Key> carries a <PrivateKey> with a PEM block and a
 #     <CertificateChain> holding at least one certificate
 #
-# Callers use this to keep a bad keybox from ever reaching the engine's config
-# dir; see keybox_fetch.sh, action.sh and the WebUI.
+# Callers use this to keep a bad keybox from ever reaching OMK's runtime dir;
+# see keybox_fetch.sh, omk-sync.sh, omk-early.sh, action.sh and the WebUI.
 #
 # Scope: this is a structural check only. It does not verify signatures, match
 # each leaf certificate against its private key, or consult Google's revocation
 # list — a well-formed but revoked keybox passes here and still costs STRONG
 # (that is the ordinary two-green-one-red state). What it does catch is the case
-# that is strictly worse: a file the engine refuses outright, which takes all
-# three verdicts down.
+# that is strictly worse: a file keymint refuses outright, which takes all three
+# verdicts down.
 #
 # Usage:
 #   sh keybox_check.sh <keybox.xml>            # problems on stdout, exit code
@@ -110,7 +110,7 @@ awk '
         else if (nkb + 0 < 1)   err("<NumberOfKeyboxes> is " nkb)
         if (keys == 0) err("no <Key> entry at all")
         if (keys > 0 && rsa == 0)
-            err("no <Key algorithm=\"rsa\"> entry — the engine rejects the whole file without one")
+            err("no <Key algorithm=\"rsa\"> entry — keymint rejects the whole file without one")
         if (certs == 0) err("no certificate anywhere in the file")
         exit (bad > 0 ? 1 : 0)
     }

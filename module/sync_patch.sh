@@ -5,8 +5,8 @@
 #   2. *.security_patch in the active pif file    — what PIF's zygisk reports to
 #      GMS and to every app it hooks.
 #   3. ro.build.version.security_patch system props — what Build.VERSION and the
-#      apps PIF does NOT hook read. TEESimulator-RS's PatchLevelManager keeps its
-#      patch fields on "prop", so the engine's attestation follows these props too.
+#      apps PIF does NOT hook read. OhMyKeymint's config.toml keeps its patch
+#      fields on "auto", so the engine's attestation follows these props too.
 #
 # All three must carry the SAME date: attestation checkers flag a mismatch
 # between the OS patch (props) and the attested osPatchLevel (security_patch.txt
@@ -55,10 +55,10 @@ done
 # level + resetprops ro.build.version.security_patch from this file, keeping
 # the keystore attestation in lock-step with the Build/* fingerprint PIF
 # spoofs. (The module-folder path it also checks no longer exists by design.)
-# Only TEESimulator-RS's PatchLevelManager reads this global path. A PIF-less
-# or legacy engine — OhMyKeymint included — would just see a stray,
-# world-readable copy of the spoofed pif, so write it only when RS is active and
-# clear any stale copy left from a previous engine.
+# Only TEESimulator-RS's PatchLevelManager reads this global path. Every other
+# engine — OhMyKeymint included — would just see a stray, world-readable copy of
+# the spoofed pif, so write it only when RS is active and clear any stale copy
+# left from a previous engine.
 if grep -q '^ATTEST=tee$' "$MODPATH/attest.sh" 2>/dev/null; then
     if [ -n "$SRC" ] && [ "$SRC" != "/data/adb/pif.prop" ]; then
         cp -f "$SRC" /data/adb/pif.prop 2>/dev/null && chmod 644 /data/adb/pif.prop 2>/dev/null
@@ -103,14 +103,23 @@ EFF_DOT="$(echo "$EFF" | cut -c1-4)-$(echo "$EFF" | cut -c5-6)-$(echo "$EFF" | c
 
 mkdir -p "$CONFIG_DIR"
 
-# --- 1. attestation patch level (TrickyStore / TEESimulator-RS)
+# --- 1. attestation patch level (TrickyStore / TEESimulator-RS / OhMyKeymint)
 # `all=<YYYY-MM-DD>` overrides every partition's patch level in the generated
 # attestation chain. Dotted form matches what autopif4 writes and what the
 # working reference module ships, so the two never fight over format.
-# TEESimulator-RS watches this file itself, so a write here is picked up on the
-# engine's own side without a restart.
 NEW_SP="all=$EFF_DOT"
+OLD_SP=$(cat "$CONFIG_DIR/security_patch.txt" 2>/dev/null)
 printf '%s\n' "$NEW_SP" > "$CONFIG_DIR/security_patch.txt"
+
+# OMK resolves its patch level from the system props when keymint starts (its
+# config.toml fields stay on "auto" so it follows this same date), so a patch
+# that moved after startup only reaches the attestation on a keymint restart.
+# Bounce it here, and only when it actually moved — the post-fs-data call runs
+# before keymint exists and is skipped by the pidof guard.
+if [ "$OLD_SP" != "$NEW_SP" ] && pidof keymint >/dev/null 2>&1 && \
+   grep -q '^ATTEST=omk$' "$MODPATH/attest.sh" 2>/dev/null; then
+    : > /data/adb/omk/restart.keymint 2>/dev/null
+fi
 
 # --- 2. PIF wildcard prop: spoof ro.build/ro.vendor/ro.system .security_patch
 # A single `*.security_patch=<date>` line makes PIF's zygisk hook report the

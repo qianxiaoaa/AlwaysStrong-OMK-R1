@@ -82,11 +82,10 @@ else
     echo "  engine.sh missing — broken install, reflash the module"; exit 1
 fi
 
-# --- Attestation engine adapter (TEESimulator-RS) ---
-# Only the sync entry point is used here; TEESimulator-RS watches the config dir
-# itself, so attest_sync is a no-op, but keeping the call keeps the shared action
-# engine-neutral. attest_install and attest_start belong to customize.sh /
-# service.sh.
+# --- Attestation engine adapter (OhMyKeymint) ---
+# Only the sync entry point is used here: it mirrors the freshly fetched keybox /
+# target list / patch level into OMK's own runtime dir. attest_install and
+# attest_start belong to customize.sh / service.sh.
 if [ -f "$MODPATH/attest.sh" ]; then
     . "$MODPATH/attest.sh"
 else

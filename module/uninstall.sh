@@ -4,9 +4,9 @@
 MODDIR=${0%/*}
 CONFIG_DIR=/data/adb/tricky_store
 
-# Kill every process this module's attestation engine may have started. The
-# daemon launcher execs into app_process under the name TEESimulator; the native
-# supervisor keeps it alive. A legacy OhMyKeymint keymint binary is matched too.
+# Kill every process this module's attestation engine may have started. OMK's
+# two supervisor loops are shell scripts, so they are matched by command line;
+# its keymint binary is matched by name.
 for proc in keymint TEESimulator supervisor daemon TrickyStoreOSS; do
     for pid in $(pidof "$proc" 2>/dev/null); do
         kill -9 "$pid" 2>/dev/null
@@ -23,13 +23,28 @@ killall -9 com.google.android.gms.unstable 2>/dev/null
 killall -9 com.google.android.gms 2>/dev/null
 am force-stop com.android.vending 2>/dev/null
 
-# --- TEESimulator-RS runtime state ----------------------------------------
-# The device-unique hardware-bound key seed (hbk) is deliberately kept: it is
-# what keeps the same attestation key across a reinstall, and re-seeding it would
-# invalidate every key the engine already minted. Only the per-boot status file
-# and the derived key material are cleared; they are rebuilt on the next boot.
+# --- OMK runtime state: keep the key store --------------------------------
+# Do NOT delete OMK's two roots here. /data/misc/keystore/omk/data is OMK's key
+# store: every key OMK minted lives in it, including the attestation key GMS
+# uses for Play Integrity, sealed by the [crypto] seeds in the config.toml
+# beside it. Removing the module does not put those keys back on the system
+# backend, so deleting the store destroys them for good.
+#
+# That mattered here because this module is routinely uninstalled and reinstalled
+# across builds: every version bump done that way threw the store away, GMS lost
+# its attestation key, and Play Integrity stayed red until GMS re-provisioned —
+# which reads exactly like a regression in the build that happened to be installed
+# at the time. Keeping the store also keeps config.toml and its seeds, so a
+# reinstall finds a decryptable store instead of dropping and rebuilding one.
+#
+# Only our own transient state is cleared; omk-early.sh recreates anything else
+# it needs on the next boot. A user who genuinely wants a clean slate can still
+# delete /data/misc/keystore/omk and /data/adb/omk by hand.
+rm -f /data/adb/omk/keymint-daemon.pid /data/adb/omk/injector-daemon.pid 2>/dev/null
+rm -f /data/adb/omk/restart.keymint /data/adb/omk/restart.injector \
+      /data/adb/omk/restart.all 2>/dev/null
 rm -rf "$CONFIG_DIR/persistent_keys"
-rm -f "$CONFIG_DIR/tee_status.txt" "$CONFIG_DIR/tee_status"
+rm -f "$CONFIG_DIR/tee_status.txt"
 rm -f "$CONFIG_DIR/boot_hash.bin" "$CONFIG_DIR/boot_key.bin"
 # ROM real patch cache captured by post-fs-data.sh — pure cache, rebuilt on the
 # next install/boot.

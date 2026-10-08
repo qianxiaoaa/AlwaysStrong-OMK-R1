@@ -1,16 +1,30 @@
 # Changelog
 
 本仓库为第三方二改版本，版本号沿用上游 AlwaysStrong 的 `v1.0.4` 并加引擎后缀。
-当前发行后缀为 `-tee`（TEESimulator-RS，`r1` 起）。历史 `-omk-*` 条目保留原文，
-作为已归档引擎版本的记录。
+当前发行后缀为 `-omk`（OhMyKeymint，ITxiao6666 分支）。历史 `-tee-*` 条目保留原文。
 
 > **2026-10-08：本仓库恢复维护（二改作者：浅笑呐）。**
 > 单一 keybox 镜像被大规模吊销的问题，改为并入 yypm 的 keybox 多源池来解决。
-> 证明引擎经历了两次切换：先从官方 `1.2.0-preview-a1f3241` 切到
+> 证明引擎从官方 `1.2.0-preview-a1f3241` 切到
 > [ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint) 分支
-> （见 `v1.0.4-omk-r11`），随后又将 OhMyKeymint 换成仍在维护的
-> [ZeyolZZZ/TEESimulator-RS-fix](https://github.com/ZeyolZZZ/TEESimulator-RS-fix)
-> （见 `v1.0.5-tee-r1`）。
+> （见 `v1.0.4-omk-r11`）。`v1.0.5-tee-r1` 曾短暂切到 TEESimulator-RS，
+> 随后在 `v1.0.5-omk-r2` 切回 OhMyKeymint。
+
+## v1.0.5-omk-r2 — 2026-10-08
+
+将证明引擎切回 **OhMyKeymint（ITxiao6666 分支）**，并升级到最新预编译 Release
+`1.3.5-200-3e76d3c`。发行命名恢复为 `AlwaysStrong-v1.0.5-omk-r2`，`versionCode=10502`。
+
+### 变更
+
+- **引擎切回**：`attest/omk.sh`、`omk-daemon`、`omk-injector`、`omk-early.sh`、
+  `omk-sync.sh` 从归档恢复为运行时；`build.sh` 的 `OMK_TAG` / `OMK_ASSET` 钉死
+  [ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint)
+  `v1.3.5-200-3e76d3c`。
+- **许可证**：因重新纳入 OhMyKeymint（AGPL-3.0 + 附加条款），本仓库整体恢复为
+  **AGPL-3.0-or-later**。
+- **归档**：`v1.0.5-tee-r1` 的 TEESimulator-RS 适配层移至 `archive/tee/`，
+  不再参与构建。
 
 ## v1.0.5-tee-r1 — 2026-10-08
 

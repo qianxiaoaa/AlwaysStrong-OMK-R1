@@ -1,9 +1,9 @@
 id=tricky_store
-name=AlwaysStrong-v1.0.5-tee-r1
-version=v1.0.5-tee-r1
-versionCode=10501
-author=Evokerr, JingMatrix, Enginex0, ZeyolZZZ, osm0sis, KOWX712, James Clef, 浅笑呐(二改)
-description=Strong Play Integrity in one drop-in module. TEESimulator-RS(ZeyolZZZ) + PlayIntegrityFork, multi-source keybox, auto-refreshed. Tap Action.
+name=AlwaysStrong-v1.0.5-omk-r2
+version=v1.0.5-omk-r2
+versionCode=10502
+author=Evokerr, JingMatrix, Enginex0, osm0sis, KOWX712, James Clef, qwq233, ITxiao6666, 浅笑呐(二改)
+description=Strong Play Integrity in one drop-in module. OhMyKeymint(ITxiao6666) + PlayIntegrityFork, multi-source keybox, auto-refreshed. Tap Action.
 support=https://t.me/AlwaysStrongR
 donate=https://106.55.19.150:1314/down/IPv8onvblB3C.png
 banner=banner.png
