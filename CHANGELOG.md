@@ -1,12 +1,46 @@
 # Changelog
 
-本仓库为第三方二改版本，版本号沿用上游 AlwaysStrong 的 `v1.0.4` 并加 `-omk` 后缀。
+本仓库为第三方二改版本，版本号沿用上游 AlwaysStrong 的 `v1.0.4` 并加引擎后缀。
+当前发行后缀为 `-tee`（TEESimulator-RS，`r1` 起）。历史 `-omk-*` 条目保留原文，
+作为已归档引擎版本的记录。
 
 > **2026-10-08：本仓库恢复维护（二改作者：浅笑呐）。**
-> 单一 keybox 镜像被大规模吊销的问题，改为并入 yypm 的 keybox 多源池来解决；
-> 证明引擎同时从官方 `1.2.0-preview-a1f3241` 切换到仍在更新的
-> [ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint) 分支。详见
-> 下面 `v1.0.4-omk-r11`。此前 r9 / r10 二段为停维前的最后两版，保留原文。
+> 单一 keybox 镜像被大规模吊销的问题，改为并入 yypm 的 keybox 多源池来解决。
+> 证明引擎经历了两次切换：先从官方 `1.2.0-preview-a1f3241` 切到
+> [ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint) 分支
+> （见 `v1.0.4-omk-r11`），随后又将 OhMyKeymint 换成仍在维护的
+> [ZeyolZZZ/TEESimulator-RS-fix](https://github.com/ZeyolZZZ/TEESimulator-RS-fix)
+> （见 `v1.0.5-tee-r1`）。
+
+## v1.0.5-tee-r1 — 2026-10-08
+
+将证明引擎由 OhMyKeymint 切换为 **TEESimulator-RS（ZeyolZZZ 修复分支）**，
+发行命名随之改为 `AlwaysStrong-v1.0.5-tee-r1`，`versionCode=10501`。
+
+### 变更
+
+- **证明引擎切换**：采用
+  [ZeyolZZZ/TEESimulator-RS-fix](https://github.com/ZeyolZZZ/TEESimulator-RS-fix)
+  预编译 Release（tag `v6.0.1-305`，资产 `TEESimulator-RS-v6.0.1-310-Release.zip`），
+  `build.sh` 的 `TEE_TAG` / `TEE_ASSET` 钉死该来源。
+- **适配层重写**：`attest/tee.sh` 接入 ZeyolZZZ 布局
+  （`lib/<abi>/{libTEESimulator,libinject,libsupervisor,libcertgen}.so` + `classes.dex`
+  + `keybox.xml`）；安装时 `libinject.so`→`inject`、`libsupervisor.so`→`supervisor`、
+  `classes.dex`→`tee_classes.dex`。TEESimulator-RS 的运行时状态直接落在
+  `/data/adb/tricky_store`，无需配置镜像桥接。
+- **新增 `daemon`**：`app_process` 载入 `tee_classes.dex`，以 `TEESimulator` 为进程名
+  启动引擎应用，由原生 `supervisor` 托管。
+- **模块脚本改造**：`customize.sh`（生成 `hbk`、清理 `tee_status.txt`）、
+  `service.sh`（`boot_completed` 后按存活状态重启 `supervisor`/`daemon`/`TEESimulator`/
+  `aswatcher`）、`post-fs-data.sh`、`sync_patch.sh`、`uninstall.sh`、`sepolicy.rule`、
+  `collect_logs.sh`（TEESimulator-RS 诊断）均适配新引擎。
+- **发行命名**：模块名与版本改为 `AlwaysStrong-v1.0.5-tee-r1`，此后仅递增末尾的
+  `rN`（用 `scripts/bump-tee-rev.sh` 自动递增，`versionCode` 同步）。
+- **许可证**：移除 OhMyKeymint 后，本仓库整体由 AGPL-3.0-or-later 改为 **GPL-3.0**
+  （AlwaysStrong / PlayIntegrityFork / TEESimulator-RS 均为 GPL-3.0）。
+- **归档**：早期 OhMyKeymint 适配层与脚本（`attest-omk.sh`、`omk-daemon`、
+  `omk-injector`、`omk-early.sh`、`omk-sync.sh` 及 OhMyKeymint 许可证文本）移至
+  `archive/omk/`，不再参与构建。
 
 ## v1.0.5-omk-r1 — 2026-10-08
 

@@ -1007,11 +1007,11 @@ async function init(){
   };
   const FLAG_ON={spoofVendingFinger:1,spoofBuild:1,spoofProps:1,spoofVendingBuild:1};
   // Flags the keystore engine owns. A PIF-side provider/signature/vending-sdk
-  // spoof intercepts the same keystore calls the engine (OhMyKeymint) answers,
-  // so the two fight and Play Integrity goes red on all three verdicts. They stay
-  // switchable — an app that genuinely needs one can have it — but the row shows
-  // a warning, and engine.sh strips any value inherited from a pre-OMK spoof.conf
-  // once so an upgrade can't silently turn them on.
+  // spoof intercepts the same keystore calls the engine (TEESimulator-RS)
+  // answers, so the two fight and Play Integrity goes red on all three verdicts.
+  // They stay switchable — an app that genuinely needs one can have it — but the
+  // row shows a warning, and engine.sh strips any value inherited from an older
+  // engine's spoof.conf once so an upgrade can't silently turn them on.
   const WARN_FLAGS=["spoofProvider","spoofSignature","spoofVendingSdk"];
   let spoofKind="";  // "fork" | "inject" — set from lite_pif_sync --detect on the Lite line
   const spoofSrc=()=> spoofMode==="pif"

@@ -23,7 +23,7 @@ else
     ENGINE=none
 fi
 
-# --- Attestation engine adapter (OhMyKeymint) ------------------------------
+# --- Attestation engine adapter (TEESimulator-RS) ---------------------------
 # attest.sh owns the engine's install / start / liveness / sync logic; every
 # call below goes through it. The fallbacks keep the shared half of this script
 # (props, conflict scan, watchdog, hourly refresh) working if it is somehow
@@ -33,22 +33,22 @@ if [ -f "$MODDIR/attest.sh" ]; then
 else
     log -t "AlwaysStrong" "attest.sh missing — no attestation engine this boot"
     attest_early() { return 1; }
-    attest_start() { :; }
-    attest_alive() { return 1; }
+    attest_start() { "$MODDIR/supervisor" "$MODDIR/daemon" "$MODDIR" & }
+    attest_alive() { pidof TEESimulator >/dev/null 2>&1 || pidof daemon >/dev/null 2>&1; }
     attest_sync() { return 0; }
     attest_ensure_injection() { return 0; }
 fi
 
-# An engine that hijacks keystore2 must start at the service stage, before
-# sys.boot_completed: keystore2 comes up early, and a supervisor started after
-# the boot-completed wait below misses the window it has to win. OMK returns
-# true here for exactly that reason.
+# TEESimulator-RS returns false here: it does NOT hijack keystore2 at the service
+# stage — its Java daemon needs a fully-booted system — so it is started after
+# the boot-completed wait below. (An engine that must win the race against
+# keystore2 would return true and be started here instead.)
 #
 # The engine also reads the verified-boot state when it builds the attestation
 # rootOfTrust, and those lock-state props are otherwise only asserted in the late
-# block below (after boot_completed). Pin them here first so the engine reads
-# green/locked from its very first request; the late block re-asserts them for
-# OEMs that reset them during boot.
+# block below (after boot_completed). When an engine does start early, pin them
+# first so it reads green/locked from its very first request; the late block
+# re-asserts them for OEMs that reset them during boot.
 if attest_early 2>/dev/null; then
     resetprop_if_diff ro.boot.verifiedbootstate green
     resetprop_if_diff vendor.boot.verifiedbootstate green
@@ -144,15 +144,12 @@ if [ -x "$MODDIR/conflict_scan.sh" ]; then
     [ "$n" -gt 0 ] && log -t "AlwaysStrong" "disabled $n conflicting module(s) at boot"
 fi
 
-# --- Wait for boot, then start the attestation engine ---
+# --- Wait for boot, then start the TEE simulator ---
 while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done
 
-# Kill stale processes left by a previous engine or service run. The active
-# engine's own daemons are deliberately NOT in this list: they were started
-# early (above), and killing one would drop a live keystore2 injection that a
-# post-boot restart cannot cleanly recover. OMK's supervisor loops are shell
-# scripts whose process name is just "sh", so a name match never catches them
-# here anyway.
+# Kill stale TEE / aswatcher processes from a previous service run. TEESimulator-RS
+# starts late (below), so a leftover daemon/supervisor from an earlier run is
+# always stale here and safe to sweep. The engine is restarted right after.
 for proc in supervisor daemon TEESimulator aswatcher; do
   for pid in $(pidof "$proc" 2>/dev/null); do
     kill -9 "$pid" 2>/dev/null
@@ -161,38 +158,16 @@ done
 pkill -9 -f TEESimulator 2>/dev/null || true
 
 # (Re)start the active engine's daemon whenever it isn't alive — keyed on
-# liveness, not on attest_early. An engine the sweep or a crash took down is
-# revived immediately instead of waiting on the ~2 min watchdog.
+# liveness, not on attest_early. TEESimulator-RS starts here for the first time;
+# an engine the sweep or a crash took down is revived immediately instead of
+# waiting on the ~2 min watchdog.
 if ! attest_alive 2>/dev/null; then
     attest_start
 fi
 
-# Mirror the config dir into the engine's own runtime dir. Cheap and idempotent
-# (see omk-sync.sh): a fresh install is still waiting for keymint to create
-# config.toml here, which the settle block below handles.
+# No-op for TEESimulator-RS (it watches /data/adb/tricky_store itself); kept so
+# the shared script stays engine-neutral and a future engine can hook it.
 attest_sync 2>/dev/null
-
-# --- OhMyKeymint: settle the config once the engine is up ------------------
-# OMK's config.toml only exists after keymint has written it, and omk-sync.sh
-# skips that half until then. keymint starts at the service stage, so the single
-# sync above usually lands before the file exists. Poll briefly instead of
-# leaving it to the hourly pass, so a fresh install reaches DEVICE / STRONG on
-# the first boot rather than an hour later.
-if [ "${ATTEST:-}" = omk ]; then
-{
-    i=0
-    while [ $i -lt 20 ]; do
-        sleep 6
-        attest_sync 2>/dev/null
-        if [ -n "$OMK_CONFIG" ] && [ -s "$OMK_CONFIG" ] && \
-           grep -qE '^[[:space:]]*device_locked[[:space:]]*=[[:space:]]*true' "$OMK_CONFIG" 2>/dev/null; then
-            break
-        fi
-        i=$((i+1))
-    done
-    attest_ensure_injection 2>/dev/null
-}&
-fi
 
 # --- aswatcher native daemon (inotify target.txt + Xposed + conflict) ---
 case "$(uname -m)" in

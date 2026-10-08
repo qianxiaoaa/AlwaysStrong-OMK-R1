@@ -152,13 +152,15 @@ if [ -f "$MANIFEST" ]; then
 fi
 
 # --- Push the new list into the attestation engine ------------------------
-# An engine that keeps its own copy of the target list (OMK's `scoop` in
-# injector.toml) would otherwise keep attesting the previous set until the next
-# hourly sync. Callers are the WebUI save, aswatcher's inotify rebuild, action.sh
-# and boot — all of them land here, so this is the one place that has to do it.
-# omk-sync.sh is a no-op when OMK is not the active engine.
+# TEESimulator-RS reads target.txt from the config dir directly and watches it,
+# so a rewrite here is picked up by the engine on its own. An engine that keeps
+# its own copy of the target list would need an explicit notify; attest_notify
+# is the hook for that, and is absent (a no-op) for TEESimulator-RS. Callers are
+# the WebUI save, aswatcher's inotify rebuild, action.sh and boot — all of them
+# land here, so this is the one place that has to do it.
 AS_MODDIR=$(cd "${0%/*}" 2>/dev/null && pwd)
 [ -f "$AS_MODDIR/attest.sh" ] || AS_MODDIR=/data/adb/modules/tricky_store
-if grep -q '^ATTEST=omk$' "$AS_MODDIR/attest.sh" 2>/dev/null; then
-    [ -f "$AS_MODDIR/omk-sync.sh" ] && sh "$AS_MODDIR/omk-sync.sh" >/dev/null 2>&1
+if [ -f "$AS_MODDIR/attest.sh" ]; then
+    ( MODPATH="$AS_MODDIR"; . "$AS_MODDIR/attest.sh" 2>/dev/null
+      command -v attest_notify >/dev/null 2>&1 && attest_notify ) >/dev/null 2>&1
 fi

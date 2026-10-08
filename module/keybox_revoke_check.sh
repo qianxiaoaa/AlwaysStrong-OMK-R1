@@ -1,12 +1,12 @@
 #!/system/bin/sh
 # AlwaysStrong — keybox revocation check.
 #
-# keybox_check.sh answers "will keymint accept this document?". This answers the
-# other half: "will Google accept it?". They are different questions with the
-# same symptom. A structurally perfect keybox whose leaf certificate has been
-# revoked passes every local check, is loaded by keymint without complaint, and
-# still fails every Play Integrity verdict — because the verdict is decided on
-# Google's servers, against attestation/status, where the serial is listed. No
+# keybox_check.sh answers "will the engine accept this document?". This answers
+# the other half: "will Google accept it?". They are different questions with
+# the same symptom. A structurally perfect keybox whose leaf certificate has been
+# revoked passes every local check, is loaded by the engine without complaint,
+# and still fails every Play Integrity verdict — because the verdict is decided
+# on Google's servers, against attestation/status, where the serial is listed. No
 # local file can look wrong in that case, so the only way to catch it is to read
 # the same list Google reads.
 #

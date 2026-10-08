@@ -29,11 +29,11 @@ log_private() {
 }
 
 # --- 1. Suppress our log tags at the source (logd drops them) ---
-# OhMyKeymint is the tag both OMK binaries (keymint and the injected library)
-# write through liblog; their own rolling files under
-# /data/misc/keystore/omk/logs stay intact for diagnostics.
+# TEESimulator is the tag the RS daemon and the injected library write through
+# liblog; its own status file under /data/adb/tricky_store stays intact for
+# diagnostics.
 for t in AlwaysStrong AlwaysStrong-boot AlwaysStrong-hourly AlwaysStrong-unify \
-         AlwaysStrong-proc AlwaysStrong-keybox OhMyKeymint; do
+         AlwaysStrong-proc AlwaysStrong-keybox TEESimulator; do
   resetprop "persist.log.tag.$t" S 2>/dev/null
 done
 

@@ -203,7 +203,7 @@ decode_by_type() {  # decode_by_type <type> <in> <out>
 }
 
 # ---- Validation ----------------------------------------------------------
-# Structure only (will keymint accept it?). keybox_check.sh is the source of
+# Structure only (will the engine accept it?). keybox_check.sh is the source of
 # truth; the substring floor is used only when it is missing.
 kb_usable() {
     _kb="$1"

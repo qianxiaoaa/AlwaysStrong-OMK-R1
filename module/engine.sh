@@ -22,7 +22,7 @@ engine_pif_targets() {
 
 # STRONG spoof defaults, in this engine's naming (Fork uses numeric 1/0).
 #   spoofProvider=0        leave the keystore provider alone — the attestation
-#                          engine (OhMyKeymint) supplies the hardware-attested
+#                          engine (TEESimulator-RS) supplies the hardware-attested
 #                          one STRONG needs.
 #   spoofVendingFinger=1   Play Store build spoof.
 # Any of these can be overridden per-key from the WebUI Advanced tab, which
@@ -34,8 +34,8 @@ engine_pif_targets() {
 #
 # Three flags are dangerous: spoofProvider / spoofSignature / spoofVendingSdk
 # each make the PIF zygisk intercept the very keystore calls the attestation
-# engine (OhMyKeymint) answers, so the two fight and Play Integrity goes red on
-# all three verdicts. A spoof.conf carried over from an earlier, non-OMK install
+# engine (TEESimulator-RS) answers, so the two fight and Play Integrity goes red on
+# all three verdicts. A spoof.conf carried over from an earlier, non-TEE install
 # is the usual way they get left on, and it silently breaks every verdict.
 #
 # They are NOT locked out — an app that genuinely needs one must be able to have
@@ -57,7 +57,7 @@ engine_spoof_defaults() {
 }
 
 # One-shot: drop an inherited override for the three keystore flags from
-# spoof.conf, so upgrading from a pre-OMK install can't carry a config that
+# spoof.conf, so upgrading from a pre-TEE install can't carry a config that
 # turns all three Play Integrity verdicts red. The marker lives in CONFIG_DIR
 # (which survives module updates), so this runs exactly once; after that the
 # WebUI may set those keys freely and they are honoured.

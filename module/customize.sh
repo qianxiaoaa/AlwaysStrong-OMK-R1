@@ -32,8 +32,7 @@ ui_print ""
 
 # stop anything that might be holding our binaries (upgrade-in-place). The list
 # covers every engine this module has shipped — killing an absent process is a
-# no-op. OMK's two supervisor loops are plain shell scripts, so they are matched
-# by command line rather than by process name.
+# no-op. A legacy OhMyKeymint install's keymint binary is matched by name too.
 for proc in TEESimulator supervisor daemon ta-enhanced TrickyStoreOSS keymint; do
   for pid in $(pidof "$proc" 2>/dev/null); do kill -9 "$pid" 2>/dev/null; done
 done
@@ -112,19 +111,14 @@ if unzip -l "$ZIPFILE" 2>/dev/null | grep -q "^.*banner\.png"; then
   chmod 644 "$MODPATH/banner.png" 2>/dev/null
 fi
 
-# --- attestation engine (OhMyKeymint) -------------------------------------
+# --- attestation engine (TEESimulator-RS) ---------------------------------
 # The per-engine install steps live in attest.sh. It runs with $ABI_DIR /
 # $ARCH / $ZIPFILE / $MODPATH and install_file() + ui_print() in scope, and
-# installs that engine's binaries. OMK is arm64-v8a only and aborts on any
-# other ABI rather than installing a module that never attests.
+# installs that engine's binaries. TEESimulator-RS ships all four ABIs.
 install_file "attest.sh" "$MODPATH"
 # shellcheck source=/dev/null
 . "$MODPATH/attest.sh"
 attest_install
-
-# --- OhMyKeymint runtime roots -------------------------------------------
-# Created further down, right after the config dir exists, so the fresh
-# keybox we drop there is what gets seeded into OMK's runtime dir.
 
 # --- PIF zygisk + dex ----------------------------------------------------
 # Ship whatever ABIs upstream built. PlayIntegrityFork covers all four;
@@ -219,18 +213,15 @@ fi
 # drop a default seed here so TrickyStore has something to read on first boot.
 [ -f "$CONFIG_DIR/target.txt" ] || install_file "target.txt" "$CONFIG_DIR"
 
-# --- OhMyKeymint runtime roots -------------------------------------------
-# Create /data/misc/keystore/omk (keystore-owned, 0770) and /data/adb/omk, and
-# seed keybox.xml + injector.toml from the config dir we just populated, so the
-# reboot right after this install finds a usable runtime. post-fs-data.sh
-# re-runs the same script on every boot.
-[ -x "$MODPATH/omk-early.sh" ] && sh "$MODPATH/omk-early.sh" 2>/dev/null
-
-# Drop the previous engine's runtime state. TEESimulator-RS kept a device-unique
-# key seed (hbk) and a per-boot status file here; OMK generates its own [crypto]
-# seeds into /data/misc/keystore/omk/config.toml and reads none of these, so a
-# stale copy would just be a dead file that looks load-bearing.
-rm -f "$CONFIG_DIR/tee_status.txt" "$CONFIG_DIR/tee_status" "$CONFIG_DIR/hbk" 2>/dev/null
+# --- TEESimulator-RS runtime state ---------------------------------------
+# The device-unique hardware-bound key seed (hbk) is generated once; persisting
+# it keeps the same attestation key across reinstalls. tee_status.txt is a
+# per-boot status file the daemon rewrites itself, so drop a stale copy.
+if [ ! -f "$CONFIG_DIR/hbk" ]; then
+  head -c 32 /dev/random > "$CONFIG_DIR/hbk" 2>/dev/null
+  chmod 600 "$CONFIG_DIR/hbk" 2>/dev/null
+fi
+rm -f "$CONFIG_DIR/tee_status.txt" "$CONFIG_DIR/tee_status" 2>/dev/null
 
 ui_print ""
 ui_print "installed. reboot, then tap [Action] to refresh."
