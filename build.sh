@@ -272,7 +272,7 @@ for abi in $ABIS; do
 done
 
 mkdir -p "$OUT"
-ZIP="$OUT/AlwaysStrong-${VERSION}.zip"
+ZIP="$OUT/AlwaysStrong-OMK-R1-${VERSION}.zip"
 rm -f "$ZIP"
 info "Packaging $ZIP"
 pack "$ZIP" "$STAGE"
