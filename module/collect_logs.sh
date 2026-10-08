@@ -1,0 +1,496 @@
+#!/system/bin/sh
+# AlwaysStrong — log collector.
+#
+# Dumps a diagnostic bundle to /sdcard so a user can attach it to a GitHub
+# issue. Deliberately does NOT include the keybox contents (it holds private
+# keys) — only its name, size and hash. The spoofed Pixel fingerprint IS
+# included: it is fake by design and is exactly what a support request needs.
+#
+# Run it three ways:
+#   - the "Collect logs" button in the WebUI (KSU / APatch / the standalone app)
+#   - sh /data/adb/modules/tricky_store/collect_logs.sh   (root shell)
+#   - sh action.sh logs
+#
+# Prints the output path on the last line so callers can show it.
+
+MODDIR=$(cd "${0%/*}" 2>/dev/null && pwd)
+# fall back to the install path if run from a copy elsewhere (so the Module
+# section isn't blank when someone runs the script from /sdcard or /tmp)
+[ -f "$MODDIR/module.prop" ] || MODDIR=/data/adb/modules/tricky_store
+CFG=/data/adb/tricky_store
+KEY_HOST="${KEYBOX_BASE_URL:-https://raw.githubusercontent.com/Yurii0307/yurikey/main}"
+STATUS_URL="${KEYBOX_STATUS_URL:-https://raw.githubusercontent.com/purainity/keybox-tools/main/res/status.json}"
+
+# The engine identifier is a plain assignment in attest.sh. This script is run by
+# hand or by the WebUI and is never sourced by the module, so nothing ever puts
+# it in the environment — read it out of the file, or the section below prints an
+# empty "?" no matter which engine is installed.
+ATTEST=$(sed -n 's/^ATTEST=//p' "$MODDIR/attest.sh" 2>/dev/null | head -n 1)
+
+# Timestamped filename so repeated collections don't overwrite each other. If
+# date is somehow unavailable, fall back to a fixed name.
+STAMP=$(date +%Y%m%d-%H%M%S 2>/dev/null)
+[ -n "$STAMP" ] && OUT="/sdcard/AlwaysStrong-log-$STAMP.txt" || OUT="/sdcard/AlwaysStrong-log.txt"
+
+# busybox for the tools toybox may lack (sha256sum on old devices, etc.)
+BB=""
+for bb in /data/adb/magisk/busybox /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox \
+          /data/adb/modules/busybox-ndk/system/*/busybox; do
+    [ -x "$bb" ] && BB="$bb" && break
+done
+sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; elif [ -n "$BB" ]; then "$BB" sha256sum; else echo "n/a"; fi; }
+
+# asfetch, the same native fetcher the module uses — the one that fails on some
+# ROMs, so it's exactly what we want to test here.
+case "$(uname -m)" in
+    aarch64) ABI=arm64-v8a ;; armv7*|armv8l) ABI=armeabi-v7a ;;
+    x86_64) ABI=x86_64 ;; i?86) ABI=x86 ;; *) ABI="" ;;
+esac
+ASFETCH="$MODDIR/bin/$ABI/asfetch"
+
+sec() { echo ""; echo "===== $* ====="; }
+
+{
+echo "AlwaysStrong diagnostic log"
+echo "generated: $(date 2>/dev/null)"
+
+sec "Module"
+grep -E '^(name|version|versionCode)=' "$MODDIR/module.prop" 2>/dev/null
+# Two different builds can carry the same version= string (nothing stops a rebuild
+# under the same number, and a flashed zip is not proof of what is installed after a
+# partial install), so hash the shipped scripts too. sha256sum's output includes the
+# filenames, so this moves when a file is renamed, added, removed or edited — which
+# is the question "which bytes are actually on this device" that version= cannot
+# answer.
+_fp=$(sha256sum "$MODDIR"/*.sh 2>/dev/null | sha256sum 2>/dev/null | cut -c1-8)
+echo "scripts fingerprint: ${_fp:-?} ($(ls "$MODDIR"/*.sh 2>/dev/null | wc -l) files)"
+[ -f "$MODDIR/engine.sh" ] && grep -E '^ENGINE(_NAME)?=' "$MODDIR/engine.sh"
+[ -f "$MODDIR/attest.sh" ] && grep -E '^ATTEST(_NAME)?=' "$MODDIR/attest.sh"
+
+sec "Device / ROM"
+for p in ro.product.brand ro.product.model ro.product.device \
+         ro.build.version.release ro.build.version.sdk ro.build.fingerprint \
+         ro.build.version.security_patch ro.product.cpu.abi; do
+    echo "$p=$(getprop $p)"
+done
+
+sec "Root manager / Zygisk"
+echo "KSU: $([ -d /data/adb/ksu ] && echo yes || echo no)"
+echo "APatch: $([ -d /data/adb/ap ] && echo yes || echo no)"
+echo "Magisk: $([ -d /data/adb/magisk ] && echo yes || echo no)"
+echo "ZygiskNext: $([ -d /data/adb/modules/zygisksu ] && echo yes || echo no)"
+echo "ReZygisk: $([ -d /data/adb/modules/rezygisk ] && echo yes || echo no)"
+
+sec "TEE / daemon processes"
+for proc in keymint TEESimulator supervisor daemon aswatcher; do
+    echo "$proc: $(pidof "$proc" 2>/dev/null || echo 'not running')"
+done
+# OMK's two supervisor loops are plain shell scripts, so pidof can't see them by
+# name — match them on the command line instead.
+for s in omk-daemon omk-injector; do
+    p=$(pgrep -f "$s" 2>/dev/null | tr '\n' ' ')
+    echo "$s: ${p:-not running}"
+done
+
+sec "OhMyKeymint runtime"
+OMK_RUN=/data/misc/keystore/omk
+OMK_STATE=/data/adb/omk
+echo "ATTEST=${ATTEST:-?} (expect omk)"
+echo "injected into keystore2: $(pidof keystore2 2>/dev/null | head -1 | while read p; do
+    [ -n "$p" ] && grep -qE 'inject|omk' "/proc/$p/maps" 2>/dev/null && echo yes || echo NO; done)"
+echo "rpc.sock: $([ -S "$OMK_RUN/rpc.sock" ] && echo present || echo MISSING)"
+echo "injector.payload: $(ls -l "$OMK_STATE/injector.payload" 2>/dev/null | awk '{print $5" bytes "$6" "$7" "$8}')"
+echo "restart flags: $(ls "$OMK_STATE"/restart.* 2>/dev/null | tr '\n' ' ')"
+# Which KeyMint instance OMK seals its boot-level key with. Empty means OMK
+# inferred it by probing TEE/StrongBox, which is the unstable path that can make
+# the store undecryptable between restarts; post-fs-data.sh pins it to the TEE.
+echo "level-zero KM strategy: $(getprop ro.keystore.boot_level_key.strategy 2>/dev/null)"
+# keymint's private store — the SQLite DB holding every key blob plus the
+# secure-deletion state file. It is sealed with the [crypto] seeds in config.toml,
+# so a store left behind by a different seed is exactly what makes keymint die at
+# startup with "fatal startup error". omk-daemon rebuilds it when that happens and
+# parks the crash trail in keymint.log.store-reset.
+echo "--- private store"
+ls -l "$OMK_RUN/data" 2>/dev/null || echo "  no store yet (keymint has not started)"
+# The store and config.toml are a matched pair — the store is sealed with the
+# [crypto] seeds in config.toml. Losing one half while the other survives is the
+# one state that guarantees the next keymint start drops the store, so name it
+# instead of leaving the reader to spot it in the listing above.
+_store_here=0; [ -d "$OMK_RUN/data" ] && _store_here=1
+_conf_here=0; [ -s "$OMK_RUN/config.toml" ] && _conf_here=1
+if [ "$_store_here" != "$_conf_here" ]; then
+    echo "WARN: key store and config.toml disagree (store=$([ "$_store_here" = 1 ] && echo present || echo absent), config.toml=$([ "$_conf_here" = 1 ] && echo present || echo absent)) — the next keymint start will drop the store"
+fi
+# keymint writes a session UUID and a count, on two lines.
+if [ -f "$OMK_RUN/crash_count" ]; then
+    echo "crash_count (session, count): $(tr '\n' ' ' < "$OMK_RUN/crash_count" 2>/dev/null)"
+fi
+# omk-early.sh clears this marker every boot, so its presence means the rebuild
+# happened *this* boot. The lines that triggered it are printed too: they are the
+# proof the store really was undecryptable rather than a false positive.
+if [ -f "$OMK_RUN/logs/keymint.log.store-reset" ]; then
+    echo "store was dropped and rebuilt this boot — pre-reset log: logs/keymint.log.store-reset"
+    echo "--- reset trigger (last 5 key-material failures)"
+    _why=$(grep -E 'fatal startup error|failed to initialize boot-level key cache|failed to decrypt keyblob' \
+           "$OMK_RUN/logs/keymint.log.store-reset" 2>/dev/null | tail -n 5)
+    echo "${_why:-none}"
+    if [ -d "$OMK_STATE/store-dropped" ]; then
+        echo "dropped store kept at $OMK_STATE/store-dropped ($(du -sk "$OMK_STATE/store-dropped" 2>/dev/null | awk '{print $1"K"}'))"
+    fi
+fi
+# Which KeyMint instance seals the boot-level key is re-decided at every keymint
+# start unless ro.keystore.boot_level_key.strategy pins it, and a start that picks
+# a different instance than the one that sealed the stored blob cannot decrypt it
+# — which is what drops the store. The strategy is only pinned from post-fs-data.sh
+# onwards, so a keymint start earlier than that runs on inference, and the two
+# decisions can differ within one boot. Print both: a line that changes between the
+# pre-reset log and the live one names the cause without anyone guessing at it.
+echo "--- level-zero key selection"
+echo "  prop strategy=$(getprop ro.keystore.boot_level_key.strategy 2>/dev/null) boot_level=$(getprop keystore.boot_level 2>/dev/null)"
+for _lvl_log in "$OMK_RUN/logs/keymint.log.store-reset" "$OMK_RUN/logs/keymint.log"; do
+    [ -s "$_lvl_log" ] || continue
+    echo "  ${_lvl_log##*/}:"
+    _sel=$(grep -E 'boot_level_key\.strategy|get_level_zero_key|boot-level key cache' \
+           "$_lvl_log" 2>/dev/null | tail -n 8)
+    if [ -n "$_sel" ]; then printf '%s\n' "$_sel" | sed 's/^/    /'; else echo "    none"; fi
+done
+# keymint's DT_NEEDED carries no libc++, so libc++_shared.so reaches it as a
+# dependency of liblog.so and LD_LIBRARY_PATH decides which copy wins. Listing
+# the candidates separates "the loader picked the wrong libc++" from "the binary
+# cannot run at all", which is otherwise only visible as a one-line logcat error.
+echo "--- loader candidates"
+for f in /apex/com.android.runtime/lib64/liblog.so /system/lib64/liblog.so \
+         /vendor/lib64/liblog.so /apex/com.android.runtime/lib64/libc++_shared.so \
+         /system/lib64/libc++_shared.so /vendor/lib64/libc++_shared.so; do
+    if [ -e "$f" ]; then
+        echo "  present  $(ls -l "$f" 2>/dev/null | awk '{print $5" bytes"}')  $f"
+    else
+        echo "  absent   $f"
+    fi
+done
+if [ -x "$MODDIR/libs/arm64-v8a/keymint" ] && [ -x /system/bin/linker64 ]; then
+    echo "--- keymint resolved libraries (linker64 --list)"
+    /system/bin/linker64 --list "$MODDIR/libs/arm64-v8a/keymint" 2>&1 | sed 's/^/  /'
+fi
+ls -l "$OMK_RUN" 2>/dev/null
+# config.toml holds generated [crypto] secrets — print only the [trust] section.
+if [ -s "$OMK_RUN/config.toml" ]; then
+    echo "--- config.toml [trust] (secrets withheld)"
+    awk '/^[[:space:]]*\[/ { intrust = ($0 ~ /\[trust\]/) } intrust' "$OMK_RUN/config.toml" 2>/dev/null
+else
+    echo "no config.toml yet (keymint has not started)"
+fi
+# --- verified boot inputs -------------------------------------------------
+# vb_hash / vb_key stay on "auto", which means keymint reads these two props and
+# copies whatever it finds into the attested root of trust — so the values Google
+# judges DEVICE on are these, not anything in the keybox. Module versions before
+# r10 filled an empty prop with sha256 over the raw first 64 KiB of the vbmeta
+# partition, which is not what AVB measures, and nothing in a log distinguishes
+# that from the real thing: it is 64 hex chars either way. Reproducing the old
+# formula here flags it if an earlier install leaves one behind, and keeps the
+# fabrication from quietly coming back.
+# The four values used to live in three different files, which cost a full
+# debugging session to line up by hand.
+echo "--- verified boot inputs"
+_vbd=$(getprop ro.boot.vbmeta.digest 2>/dev/null)
+_vbk=$(getprop ro.boot.vbmeta.public_key_digest 2>/dev/null)
+echo "ro.boot.vbmeta.digest: ${_vbd:-<empty>}"
+echo "ro.boot.vbmeta.public_key_digest: ${_vbk:-<empty>}"
+echo "ro.boot.verifiedbootstate: $(getprop ro.boot.verifiedbootstate 2>/dev/null)"
+echo "ro.boot.vbmeta.device_state: $(getprop ro.boot.vbmeta.device_state 2>/dev/null)"
+[ -z "$_vbd" ] && echo "WARN: no vbmeta digest — the attested root of trust is empty"
+_vbblk=""
+if [ -n "$_vbd" ]; then
+    for _vb in /dev/block/by-name/vbmeta /dev/block/by-name/vbmeta_a \
+               /dev/block/bootdevice/by-name/vbmeta; do
+        [ -r "$_vb" ] && _vbblk="$_vb" && break
+    done
+fi
+if [ -n "$_vbblk" ]; then
+    # 64 KiB only: reading the whole partition during boot can hang the boot
+    # animation on some Xiaomi devices, and the AVB struct fits well inside it.
+    _vbc=$(dd if="$_vbblk" bs=4096 count=16 2>/dev/null | sha256sum 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$_vbc" ] && [ "$_vbc" = "$_vbd" ]; then
+        echo "WARN: the digest equals sha256(first 64 KiB of $_vbblk) — that is the pre-r10 service.sh formula, not an AVB digest, so no build Google knows can match it"
+    elif [ -n "$_vbc" ]; then
+        echo "digest is not the 64 KiB sha256 of $_vbblk"
+    fi
+fi
+# The [crypto] seeds are what make the store decryptable, and OMK mints fresh
+# ones when config.toml is missing at keymint start. Print which fields exist and
+# a hash over their values — never the values. omk-early.sh appends one line per
+# boot, so a single log shows whether they move between boots; a moving
+# fingerprint is what makes the next boot drop the store.
+_cfp=""
+if [ -s "$OMK_RUN/config.toml" ]; then
+    _cf=$(awk -F= '
+        /^[[:space:]]*\[/ { inc = ($0 ~ /\[crypto\]/); next }
+        inc && /^[[:space:]]*[A-Za-z_]+[[:space:]]*=/ {
+            k = $1; gsub(/[[:space:]]/, "", k)
+            v = substr($0, index($0, "=") + 1)
+            gsub(/[[:space:]"]/, "", v)
+            print k "=" v
+        }
+    ' "$OMK_RUN/config.toml" 2>/dev/null | sort)
+    _cfp=$(printf '%s\n' "$_cf" | sha256sum 2>/dev/null | cut -c1-16)
+    echo "--- config.toml [crypto] (values hashed, never printed)"
+    echo "crypto fields: $(printf '%s\n' "$_cf" | sed 's/=.*//' | tr '\n' ' ')"
+    echo "crypto fingerprint: ${_cfp:-?}"
+fi
+# omk-sync.sh parks the last complete file here and omk-early.sh restores it when
+# the live one is gone. A fingerprint that does not match the live file means
+# config.toml was regenerated, and the store sealed by the old seeds is orphaned.
+_keepfp=""
+if [ -s "$OMK_STATE/config.toml.keep" ]; then
+    _keepfp=$(awk -F= '
+        /^[[:space:]]*\[/ { inc = ($0 ~ /\[crypto\]/); next }
+        inc && /^[[:space:]]*[A-Za-z_]+[[:space:]]*=/ {
+            k = $1; gsub(/[[:space:]]/, "", k)
+            v = substr($0, index($0, "=") + 1)
+            gsub(/[[:space:]"]/, "", v)
+            print k "=" v
+        }
+    ' "$OMK_STATE/config.toml.keep" 2>/dev/null | sort | sha256sum 2>/dev/null | cut -c1-16)
+fi
+echo "config.toml.keep: $([ -n "$_keepfp" ] && echo "present (fingerprint ${_keepfp})" || echo absent)"
+[ -n "$_cfp" ] && [ -n "$_keepfp" ] && [ "$_cfp" != "$_keepfp" ] && \
+    echo "WARN: live [crypto] seeds differ from the kept backup — config.toml was regenerated, so the store sealed by the old seeds is unreachable"
+if [ -s "$OMK_STATE/crypto-history.log" ]; then
+    echo "--- [crypto] fingerprint per boot (newest last)"
+    tail -n 12 "$OMK_STATE/crypto-history.log"
+    # omk-early.sh appends one line per boot. Two different values in a row IS
+    # the failure: the store written under the earlier seeds cannot be opened
+    # under the later ones, so keymint drops it on that boot.
+    _fp_new=$(tail -n 1 "$OMK_STATE/crypto-history.log" 2>/dev/null | sed -n 's/.*fp=\([^ ]*\).*/\1/p')
+    _fp_old=$(tail -n 2 "$OMK_STATE/crypto-history.log" 2>/dev/null | head -n 1 | sed -n 's/.*fp=\([^ ]*\).*/\1/p')
+    [ -n "$_fp_new" ] && [ -n "$_fp_old" ] && [ "$_fp_new" != "$_fp_old" ] && \
+        echo "WARN: [crypto] seeds changed between the last two boots (${_fp_old} -> ${_fp_new}) — the store written under the earlier seeds is dropped on the later boot"
+fi
+echo "--- injector.toml scoop"
+awk '/^[[:space:]]*scoop[[:space:]]*=/ { ins = 1; next } ins && /^[[:space:]]*\]/ { ins = 0 } ins' "$OMK_RUN/injector.toml" 2>/dev/null
+echo "--- keymint.log (last 25)"
+tail -25 "$OMK_RUN/logs/keymint.log" 2>/dev/null || echo "none"
+# Any of these means keymint never reached its RPC server, which is the one
+# failure that leaves keystore2 on the system backend for the whole boot — and
+# the decrypt half is what tells a dead store apart from a bad keybox.
+echo "--- keymint startup failures (last 3)"
+_fatal=$(grep -E 'fatal startup error|failed to initialize boot-level key cache|failed to decrypt keyblob' \
+         "$OMK_RUN/logs/keymint.log" 2>/dev/null | tail -n 3)
+echo "${_fatal:-none}"
+# A rejected keybox is a different failure from a dead store, and it is the one
+# that produces three red verdicts: keymint does not keep the previous file, it
+# rewrites its bundled template (DeviceID="sw"). Name it, and also compare the
+# runtime copy against the configured one — when they differ, the file keymint is
+# actually reading is not the file the user thinks they installed.
+echo "--- keybox fallback (keymint)"
+_kbfb=$(grep -E 'invalid keybox|rewriting bundled template|fallback=true|missing RSA key entry' \
+        "$OMK_RUN/logs/keymint.log" 2>/dev/null | tail -n 3)
+if [ -n "$_kbfb" ]; then
+    echo "$_kbfb"
+    echo "WARN: keymint rejected a keybox and fell back to its bundled template — every Play Integrity verdict is red until a usable keybox is restored. Re-run the Action to re-fetch one; if the verdicts stay red after that, clear Google Play services' data so GMS re-applies for attestation keys (its cached ones were bound to the rejected keybox)."
+else
+    echo "none"
+fi
+if [ -s "$OMK_RUN/keybox.xml" ] && [ -s "$CFG/keybox.xml" ]; then
+    _rs=$(sha < "$OMK_RUN/keybox.xml" 2>/dev/null | awk '{print $1}')
+    _cs=$(sha < "$CFG/keybox.xml" 2>/dev/null | awk '{print $1}')
+    [ -n "$_rs" ] && [ -n "$_cs" ] && [ "$_rs" != "$_cs" ] && \
+        echo "WARN: runtime keybox ($(printf '%s' "$_rs" | cut -c1-12)) != configured keybox ($(printf '%s' "$_cs" | cut -c1-12)) — keymint is reading a different file than the config dir holds"
+fi
+echo "--- injector.log (last 25)"
+tail -25 "$OMK_RUN/logs/injector.log" 2>/dev/null || echo "none"
+
+sec "Spoofed fingerprint (pif.prop — safe to share)"
+for f in "$CFG/pif.prop" "$MODDIR/pif.prop" "$MODDIR/custom.pif.prop"; do
+    [ -s "$f" ] && { echo "--- $f"; cat "$f"; break; }
+done
+
+sec "Spoof overrides + effective flags"
+if [ -s "$CFG/spoof.conf" ]; then
+    echo "--- $CFG/spoof.conf"
+    cat "$CFG/spoof.conf"
+    # These three drive the verdicts: when on, the PIF zygisk intercepts the
+    # keystore calls the attestation engine answers, the two fight, and all three
+    # Play Integrity verdicts go red. Say so, so a red verdict isn't chased in the
+    # wrong place.
+    for _lk in spoofProvider spoofSignature spoofVendingSdk; do
+        _v=$(sed -n "s/^${_lk}=//p" "$CFG/spoof.conf" 2>/dev/null | head -1 | tr -d ' \t\r')
+        case "$_v" in
+            1|true|on|yes)
+                echo "WARN: ${_lk}=${_v} is ON — this fights the attestation engine and turns all three Play Integrity verdicts red" ;;
+        esac
+    done
+    echo "inherited-key purge: $([ -f "$CFG/.spoof_keys_purged" ] && echo done || echo pending)"
+else
+    echo "no spoof.conf (engine defaults only)"
+fi
+# The flags the zygisk actually reads, module dir first — spoof.conf feeds these
+# through engine_enforce_spoof, so this is what the verdicts are decided on.
+for f in "$MODDIR/custom.pif.prop" "$CFG/custom.pif.prop" "$MODDIR/pif.prop" "$CFG/pif.prop"; do
+    [ -s "$f" ] && { echo "--- $f (effective spoof flags)"; grep -iE '^(spoof|DEBUG)' "$f"; break; }
+done
+
+sec "Security patch consistency"
+# The OS patch prop, the attested patch (security_patch.txt) and the PIF date all
+# have to agree, or an attestation checker flags "OS patch differs". Print all
+# three plus the ROM's captured real date, and name any mismatch outright.
+echo "patch spoof: $([ -f "$CFG/no_spoof_patch_props" ] && echo "off (ROM real date everywhere)" || echo on)"
+echo "date mode: $([ -f "$CFG/unified_patch_date" ] && echo "unified, newest of fingerprint/ROM (experimental toggle ON)" || echo "strict fingerprint, own date (default)")"
+echo "ROM real (captured at boot): $(cat "$CFG/.rom_security_patch" 2>/dev/null | tr -cd '0-9')"
+_sp=$(cat "$CFG/security_patch.txt" 2>/dev/null | sed 's/^all=//' | tr -d ' \r')
+echo "security_patch.txt: ${_sp:-missing}"
+_pifsp=""
+for f in "$CFG/custom.pif.prop" "$MODDIR/custom.pif.prop" "$CFG/pif.prop" "$MODDIR/pif.prop"; do
+    [ -s "$f" ] || continue
+    _pifsp=$(grep -m1 '^[#]\?\*\.security_patch=' "$f" 2>/dev/null | cut -d= -f2- | tr -d ' \r')
+    [ -n "$_pifsp" ] && { echo "pif *.security_patch: $_pifsp  ($f)"; break; }
+done
+_pr=$(getprop ro.build.version.security_patch 2>/dev/null)
+echo "ro.build.version.security_patch: ${_pr:-unset}"
+echo "ro.vendor.build.security_patch: $(getprop ro.vendor.build.security_patch 2>/dev/null)"
+[ -n "$_sp" ] && [ -n "$_pr" ] && [ "$_sp" != "$_pr" ] && \
+    echo "WARN: security_patch.txt ($_sp) != ro.build.version.security_patch ($_pr) — OS-patch / osPatchLevel mismatch, checkers flag this"
+[ -n "$_sp" ] && [ -n "$_pifsp" ] && [ "$_sp" != "$_pifsp" ] && \
+    echo "WARN: security_patch.txt ($_sp) != pif *.security_patch ($_pifsp) — PIF and the engine report different patch dates"
+
+sec "Keybox (metadata only — contents withheld)"
+KB="$CFG/keybox.xml"
+KB_CHECK="$MODDIR/keybox_check.sh"
+if [ -s "$KB" ]; then
+    echo "path: $KB"
+    echo "size: $(wc -c < "$KB") bytes"
+    echo "sha256: $(sha < "$KB" | awk '{print $1}')"
+    # The structural verdict, not "contains the string Keybox". keymint rejects a
+    # document whose key entry is incomplete, and when it rejects one it rewrites
+    # its own bundled template rather than keeping the file that was there — the
+    # difference between one red verdict and three, so it is worth naming.
+    if [ -f "$KB_CHECK" ]; then
+        _why=$(sh "$KB_CHECK" "$KB" 2>&1)
+        if [ -z "$_why" ]; then
+            echo "usable-by-keymint: yes"
+        else
+            echo "usable-by-keymint: NO"
+            printf '%s\n' "$_why" | sed 's/^/  reason: /'
+            echo "WARN: keymint will reject this keybox and rewrite its bundled template (DeviceID=\"sw\") — all three Play Integrity verdicts go red. Fix: turn custom keybox off and re-run the Action to re-fetch, or import a keybox that passes this check."
+        fi
+    else
+        echo "usable-by-keymint: unknown (keybox_check.sh not installed)"
+    fi
+    # Google's half of the question, which nothing local can answer: a keybox can
+    # be structurally perfect, load in keymint without complaint, and still fail
+    # every verdict because its serial is on attestation/status. Public mirrors
+    # are the usual source of such a key — one key shared by everyone is revoked
+    # the moment it leaks, and the mirror keeps serving it. So read the list
+    # Google reads rather than guessing from the file.
+    KB_REVOKE="$MODDIR/keybox_revoke_check.sh"
+    if [ -f "$KB_REVOKE" ]; then
+        _RT="$CFG/.revcheck.$$"; mkdir -p "$_RT"
+        _got=0
+        if [ -n "$ABI" ] && [ -x "$ASFETCH" ] \
+           && "$ASFETCH" -T 8 -o "$_RT/status.json" "$STATUS_URL" >/dev/null 2>&1 \
+           && [ -s "$_RT/status.json" ]; then _got=1; fi
+        if [ "$_got" = 0 ] && [ -n "$BB" ] \
+           && "$BB" wget -q -T 10 -O "$_RT/status.json" "$STATUS_URL" >/dev/null 2>&1 \
+           && [ -s "$_RT/status.json" ]; then _got=1; fi
+        if [ "$_got" = 0 ] && command -v curl >/dev/null 2>&1 \
+           && curl -fsSL --connect-timeout 8 --max-time 20 -o "$_RT/status.json" "$STATUS_URL" >/dev/null 2>&1 \
+           && [ -s "$_RT/status.json" ]; then _got=1; fi
+        if [ "$_got" = 1 ]; then
+            _rev=$(sh "$KB_REVOKE" "$KB" "$_RT/status.json" 2>&1); _rrc=$?
+            case "$_rrc" in
+                0) echo "revoked-by-google: no" ;;
+                1) echo "revoked-by-google: YES"
+                   printf '%s\n' "$_rev" | sed 's/^/  /'
+                   echo "WARN: Google revoked this keybox — every Play Integrity verdict stays red however good the rest of the device looks. Tap [Action] to re-fetch from the mirror, or import a keybox that passes this check." ;;
+                *) echo "revoked-by-google: unknown (checker: $(printf '%s' "$_rev" | head -n 1))" ;;
+            esac
+        else
+            echo "revoked-by-google: unknown (could not fetch $STATUS_URL)"
+        fi
+        rm -rf "$_RT"
+    else
+        echo "revoked-by-google: unknown (keybox_revoke_check.sh not installed)"
+    fi
+    echo "custom-keybox mode: $([ -f "$CFG/custom_keybox" ] && echo on || echo off)"
+else
+    echo "no keybox.xml present"
+fi
+
+sec "Target list (count + first 15)"
+if [ -s "$CFG/target.txt" ]; then
+    echo "apps: $(grep -cvE '^[[:space:]]*$' "$CFG/target.txt")"
+    grep -vE '^[[:space:]]*$' "$CFG/target.txt" | head -15
+else
+    echo "no target.txt"
+fi
+
+sec "Config dir"
+ls -l "$CFG" 2>/dev/null
+
+sec "Network (most keybox/fingerprint failures are here)"
+# raw IP reachability — no DNS involved
+for ip in 1.1.1.1 8.8.8.8; do
+    if ping -c1 -W2 "$ip" >/dev/null 2>&1; then echo "ping $ip: ok"; else echo "ping $ip: FAIL"; fi
+done
+# DNS: can the keybox host be resolved? Resolver often comes up late on some
+# AOSP ROMs, which is what leaves them with no keybox on first boot.
+HOST=$(echo "$KEY_HOST" | sed -e 's#^[a-z]*://##' -e 's#/.*##' -e 's#:.*##')
+if command -v getent >/dev/null 2>&1 && getent hosts "$HOST" >/dev/null 2>&1; then
+    echo "dns $HOST: ok ($(getent hosts "$HOST" | awk '{print $1}' | tr '\n' ' '))"
+elif [ -n "$BB" ] && "$BB" nslookup "$HOST" >/dev/null 2>&1; then
+    echo "dns $HOST: ok (via nslookup)"
+else
+    echo "dns $HOST: FAIL — cannot resolve (resolver not up / blocked)"
+fi
+# actual keybox fetch, one attempt per engine, with timing — shows which
+# downloader works on this ROM and how long it takes.
+NT="$CFG/.netcheck.$$"; mkdir -p "$NT"; trap 'rm -rf "$NT"' EXIT INT TERM
+test_engine() {
+    _name="$1"; shift
+    _t0=$(date +%s 2>/dev/null)
+    rm -f "$NT/out"
+    "$@" >/dev/null 2>&1
+    _t1=$(date +%s 2>/dev/null)
+    if [ -s "$NT/out" ]; then
+        echo "$_name: ok ($(wc -c < "$NT/out") bytes, ~$((_t1 - _t0))s)"
+    else
+        echo "$_name: FAIL (~$((_t1 - _t0))s)"
+    fi
+}
+KURL="$KEY_HOST/key"
+# short timeouts: this is a reachability probe, not the real fetch, and long
+# per-engine stalls are what made pressing the button feel like a freeze.
+[ -n "$ABI" ] && [ -x "$ASFETCH" ] && test_engine "asfetch    $KURL" "$ASFETCH" -T 5 -o "$NT/out" "$KURL" || echo "asfetch: not available for $ABI"
+[ -n "$BB" ] && test_engine "busybox-wget" "$BB" wget -q -T 5 -O "$NT/out" "$KURL"
+command -v curl >/dev/null 2>&1 && test_engine "curl       " curl -fsSL --connect-timeout 5 --max-time 8 -o "$NT/out" "$KURL"
+command -v wget >/dev/null 2>&1 && test_engine "wget       " wget -q -T 5 -O "$NT/out" "$KURL"
+echo "last-good engine (cached): $(cat "$CFG/.kb_engine" 2>/dev/null || echo none)"
+rm -rf "$NT"; trap - EXIT INT TERM
+
+sec "autopif.log (fingerprint fetch)"
+cat "$CFG/autopif.log" 2>/dev/null | tail -40 || echo "none"
+
+sec "Conflicting modules present"
+for c in playintegrityfix playintegrityfork tricky_store_v2 TrickyStore \
+         tee_simulator TEESimulator oh_my_keymint OhMyKeymint omk \
+         safetynet-fix MagiskHidePropsConf Yurikey; do
+    [ -d "/data/adb/modules/$c" ] && echo "present: $c"
+done
+
+sec "logcat (our tags, last 200 lines)"
+# -t 3000 reads only the tail of the ring buffer; a full `logcat -d` dump can be
+# tens of MB and takes seconds, which is most of the button's perceived lag.
+logcat -d -t 3000 2>/dev/null | grep -iE 'AlwaysStrong|TEESimulator|tricky_store|aswatcher|libinject|PlayIntegrity|omk|keymint' | tail -200 || echo "logcat unavailable"
+
+sec "dmesg (our tags)"
+dmesg 2>/dev/null | grep -iE 'TEESimulator|tricky_store|aswatcher|omk|keymint' | tail -40 || echo "dmesg unavailable"
+
+echo ""
+echo "===== end ====="
+} > "$OUT" 2>&1
+
+chmod 664 "$OUT" 2>/dev/null
+# leave a pointer to the newest log so the WebUI can launch this detached (no UI
+# freeze) and poll for the path instead of waiting on the whole run.
+echo "$OUT" > "$CFG/.last_log" 2>/dev/null
+echo "$OUT"
