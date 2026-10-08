@@ -8,6 +8,12 @@
 > [ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint) 分支。详见
 > 下面 `v1.0.4-omk-r11`。此前 r9 / r10 二段为停维前的最后两版，保留原文。
 
+## v1.0.5-omk-r1 — 2026-10-08
+
+调整发布命名：模块名与版本改为 `AlwaysStrong-v1.0.5-omk-r1`，此后仅递增末尾的
+`rN`（用 `scripts/bump-omk-rev.sh` 自动递增，`versionCode` 同步为 `10501`）。
+证明引擎仍为 ITxiao6666/OhMyKeymint `1.3.5-196-10113e7`，keybox 多源池不变。
+
 ## v1.0.4-omk-r11 — 2026-10-08
 
 恢复维护并合并三个项目。
