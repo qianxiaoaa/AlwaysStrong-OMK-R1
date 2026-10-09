@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
-# Bump the trailing "-omk-rN" fork revision of this repo's module.prop.
+# Bump the trailing "-omk-rN.M" fork revision of this repo's module.prop.
 #
-# This fork stamps the revision into both the module name and the version:
-#   name=AlwaysStrong-v1.0.5-omk-r1
-#   version=v1.0.5-omk-r1
-#   versionCode=10501
+#   name=AlwaysStrong-v1.0.5-omk-r3.1
+#   version=v1.0.5-omk-r3.1
+#   versionCode=105031
 #
-# This script increments N (r1 -> r2 ...) and recomputes versionCode with the
-# fork's scheme: (major*100 + minor*10 + patch) * 100 + revision, so
-# v1.0.4-omk-r11 = 10411 and v1.0.5-omk-r1 = 10501. The base version (v1.0.5)
-# is left untouched; change that by hand when the upstream base moves.
+# Sequence: r3.1 .. r3.9, then r4.0, r4.1 .. r4.9, then r5.0.
+# A legacy integer suffix (r3) is treated as r3.0, so the next bump is r3.1.
+#
+# versionCode: (major*100 + minor*10 + patch) * 1000 + N*10 + M
+#   v1.0.5-omk-r3.1 = 105031, v1.0.5-omk-r4.0 = 105040
 #
 # Reads/writes: module/module.prop
-# Prints: the new version (e.g. v1.0.5-omk-r2). In CI, also appends
-#         new_ver / new_code to $GITHUB_OUTPUT.
-#
-# Usage: scripts/bump-omk-rev.sh
+# Prints: the new version. In CI, also appends new_ver / new_code to $GITHUB_OUTPUT.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,17 +22,31 @@ ver=$(sed -n 's/^version=//p' "$PROP" | head -1)
 [[ -n "$ver" ]] || { echo "cannot read version= from $PROP" >&2; exit 1; }
 
 base="${ver%-omk-r*}"
-[[ "$base" != "$ver" ]] || { echo "version '$ver' has no -omk-rN suffix" >&2; exit 1; }
-rev="${ver##*-omk-r}"
-[[ "$rev" =~ ^[0-9]+$ ]] || { echo "unparseable revision in '$ver'" >&2; exit 1; }
+[[ "$base" != "$ver" ]] || { echo "version '$ver' has no -omk-r suffix" >&2; exit 1; }
+suffix="${ver##*-omk-r}"
+[[ "$suffix" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "unparseable revision in '$ver'" >&2; exit 1; }
 
-new_ver="${base}-omk-r$((rev + 1))"
+maj="${suffix%%.*}"
+if [[ "$suffix" == *.* ]]; then
+    min="${suffix##*.}"
+else
+    min=0
+fi
+[[ "$maj" =~ ^[0-9]+$ && "$min" =~ ^[0-9]+$ ]] || { echo "unparseable revision in '$ver'" >&2; exit 1; }
+
+if [[ "$min" -ge 9 ]]; then
+    maj=$((maj + 1))
+    min=0
+else
+    min=$((min + 1))
+fi
+new_ver="${base}-omk-r${maj}.${min}"
 
 b="${base#v}"
 IFS=. read -r MA MI PA <<<"$b"
 [[ "$MA" =~ ^[0-9]+$ && "$MI" =~ ^[0-9]+$ && "$PA" =~ ^[0-9]+$ ]] \
     || { echo "unparseable base version '$base'" >&2; exit 1; }
-new_code=$(( (MA * 100 + MI * 10 + PA) * 100 + (rev + 1) ))
+new_code=$(( (MA * 100 + MI * 10 + PA) * 1000 + maj * 10 + min ))
 
 sed -i.bak \
     -e "s|^name=.*|name=AlwaysStrong-${new_ver}|" \

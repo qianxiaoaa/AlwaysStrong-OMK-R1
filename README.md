@@ -185,7 +185,12 @@ GitHub Actions 每天 **00:00（北京时间）** 检查
 [PlayIntegrityFork](https://github.com/osm0sis/PlayIntegrityFork) 是否有新 Release，
 以及 [yangyang8002/yypm](https://github.com/yangyang8002/yypm) 的
 `php-server/config.php` 源列表是否有变化。
-有更新时自动递增 `-omk-rN`、构建并发布。也可在 Actions 页手动触发 `auto-upstream`。
+有更新时自动递增 `-omk-rN.M`（例如 `r3.1` … `r3.9` 后到 `r4.0`）、构建并发布，
+Release 标题为 `AlwaysStrong-v1.0.5-omk-rN.M`。也可在 Actions 页手动触发 `auto-upstream`。
+
+模块每天 **02:00（北京时间）** 检查本仓库 [`update.json`](https://raw.githubusercontent.com/qianxiaoaa/AlwaysStrong-OMK-R1/main/update.json)，
+有新版本则发系统通知。管理器也可通过 `module.prop` 的 `updateJson` 拉同一份清单。
+关闭设备端检查：放置 `/data/adb/tricky_store/no_auto_self_update`。
 
 ---
 

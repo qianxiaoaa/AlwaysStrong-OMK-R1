@@ -335,6 +335,18 @@ if grep -q '^ENGINE=none' "$MODDIR/engine.sh" 2>/dev/null; then
     { sleep 90; sh "$MODDIR/lite_pif_sync.sh" 2>&1 | log -t "AlwaysStrong-boot"; } &
 fi
 
+# --- Module self-update (02:00 Beijing time) -----------------------------
+# Poll every 5 minutes; self_update_check.sh only fetches at 02:00 and at
+# most once per day. Posts a system notification when GitHub has a newer zip.
+# Opt out: /data/adb/tricky_store/no_auto_self_update
+{
+    export MODPATH="$MODDIR"
+    while true; do
+        sleep 300
+        [ -f "$MODDIR/self_update_check.sh" ] && sh "$MODDIR/self_update_check.sh" >/dev/null 2>&1
+    done
+}&
+
 # --- Hourly refresh (fingerprint + keybox, each toggle-able from WebUI) --
 # WebUI writes flag files into /data/adb/tricky_store/ to opt OUT:
 #   no_auto_fp      -> skip the fingerprint refresh
