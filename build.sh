@@ -32,8 +32,8 @@ OUT="$ROOT/out"
 # the unmaintained qwq233 1.2.0-preview build. Same release layout
 # (libs/<abi>/{keymint,inject} + injector.toml + keybox.xml), so the module
 # overlay does not change; only the payload version does.
-OMK_TAG="v1.3.5-200-3e76d3c"
-OMK_ASSET="OhMyKeymint-1.3.5-200-3e76d3c-release.zip"
+OMK_TAG="v1.3.5-203-d879fb7"
+OMK_ASSET="OhMyKeymint-1.3.5-203-d879fb7-release.zip"
 OMK_URL="https://github.com/ITxiao6666/OhMyKeymint/releases/download/$OMK_TAG/$OMK_ASSET"
 
 PIF_TAG="v18"

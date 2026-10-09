@@ -10,6 +10,15 @@
 > （见 `v1.0.4-omk-r11`）。`v1.0.5-tee-r1` 曾短暂切到 TEESimulator-RS，
 > 随后在 `v1.0.5-omk-r2` 切回 OhMyKeymint。
 
+
+## v1.0.5-omk-r3 — 2026-10-09
+
+自动同步上游。
+
+- OhMyKeymint: `1.3.5-200-3e76d3c` -> `1.3.5-203-d879fb7`
+
+发行命名 `AlwaysStrong-v1.0.5-omk-r3`，`versionCode=10503`。
+
 ## v1.0.5-omk-r2 — 2026-10-08
 
 将证明引擎切回 **OhMyKeymint（ITxiao6666 分支）**，并升级到最新预编译 Release

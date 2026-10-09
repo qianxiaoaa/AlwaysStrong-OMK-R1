@@ -56,7 +56,7 @@ else:
 open(path, "w", encoding="utf-8").write(text)
 PY
 
-"$ROOT/build.sh"
+bash "$ROOT/build.sh"
 
 ZIP="$ROOT/out/AlwaysStrong-${NEW_VER}.zip"
 [[ -f "$ZIP" ]] || { echo "missing $ZIP" >&2; exit 1; }

@@ -9,7 +9,7 @@ GPL-3.0 §5 / AGPL-3.0 §5 的「标明修改」义务与 AGPL-3.0 §13 的组�
 
 | 组件 | 版本 | 著作权人 | 许可证 | 上游 |
 |---|---|---|---|---|
-| OhMyKeymint | `1.3.5-200-3e76d3c` | qwq233、ITxiao6666 及贡献者 | AGPL-3.0-or-later + 附加条款 | https://github.com/ITxiao6666/OhMyKeymint |
+| OhMyKeymint | `1.3.5-203-d879fb7` | qwq233、ITxiao6666 及贡献者 | AGPL-3.0-or-later + 附加条款 | https://github.com/ITxiao6666/OhMyKeymint |
 | AlwaysStrong | `v1.0.4` | Evokerr (evoker0) 及贡献者 | GPL-3.0 | https://github.com/evoker0/AlwaysStrong |
 | PlayIntegrityFork | `v18` | osm0sis 及贡献者 | GPL-3.0 | https://github.com/osm0sis/PlayIntegrityFork |
 | yypm（keybox 多源池） | 并入 | yangyang8002 及贡献者 | 见其仓库 | https://github.com/yangyang8002/yypm |

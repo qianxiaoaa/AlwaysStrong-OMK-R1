@@ -96,7 +96,7 @@
 
 | 组件 | 版本 | 上游 |
 |---|---|---|
-| OhMyKeymint | `1.3.5-200-3e76d3c` | [ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint/releases) |
+| OhMyKeymint | `1.3.5-203-d879fb7` | [ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint/releases) |
 | PlayIntegrityFork | `v18` | [osm0sis/PlayIntegrityFork](https://github.com/osm0sis/PlayIntegrityFork) |
 | AlwaysStrong 骨架 | `v1.0.4` | [evoker0/AlwaysStrong](https://github.com/evoker0/AlwaysStrong) |
 | keybox 多源池 | 并入自 yypm | [yangyang8002/yypm](https://github.com/yangyang8002/yypm) |
