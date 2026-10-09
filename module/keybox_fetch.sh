@@ -11,12 +11,14 @@
 # atomic-replace skeleton is AlwaysStrong's. Every source is treated as
 # untrusted: a source only ever contributes a candidate, never a verdict.
 #
-# Sources, in priority order (name|encoding|url):
-#   yurikey        single-layer base64
-#   integritybox   10x base64 -> hex -> rot13
-#   megatron       10x base64 -> hex -> rot13
-# An extra source can be prepended with the KEYBOX_SOURCES env var, and the
-# legacy single-source KEYBOX_BASE_URL is still honoured as a base64 source.
+# Sources (name|encoding|url) are synced from yangyang8002/yypm
+# php-server/config.php by scripts/update-upstream.sh. Encodings:
+#   base64  single-layer base64
+#   mbh     10x base64 -> hex -> rot13
+#   hb64    hex -> (xml | base64)
+# Directory-style yypm sources (github_dir) are not imported: the device
+# fetch path has no GitHub contents API. An extra source can be prepended
+# with KEYBOX_SOURCES; KEYBOX_BASE_URL is still honoured as a base64 source.
 #
 # Local pool: every key that passes both gates is copied to
 # $CONFIG_DIR/keybox_pool/. When the whole upstream set is unreachable, every
@@ -43,7 +45,7 @@ if [ -f "$CONFIG_DIR/custom_keybox" ]; then
 fi
 
 # ---- Source pool ---------------------------------------------------------
-# name|encoding|url. Encodings: base64, mbh (multi_base64_hex_rot13).
+# name|encoding|url. Encodings: base64, mbh, hb64.
 # The trailing blank line keeps older POSIX sh `read` from dropping the last row.
 read_sources() {
     if [ -n "$KEYBOX_SOURCES" ]; then
@@ -52,11 +54,13 @@ read_sources() {
     if [ -n "$KEYBOX_BASE_URL" ]; then
         printf 'legacy|base64|%s/key\n' "$KEYBOX_BASE_URL"
     fi
+    # BEGIN YYPM_SOURCES
     cat <<'EOF'
 yurikey|base64|https://raw.githubusercontent.com/Yurii0307/yurikey/main/key
 integritybox|mbh|https://raw.githubusercontent.com/MeowDump/MeowDump/refs/heads/main/NullVoid/OptimusPrime
 megatron|mbh|https://raw.githubusercontent.com/MeowDump/MeowDump/main/Megatron
 EOF
+    # END YYPM_SOURCES
 }
 
 # Google's attestation revocation list, fetched from several mirrors. The
@@ -64,11 +68,13 @@ EOF
 # first and the official endpoint is the formal fallback. A list that cannot be
 # fetched is not a verdict, so a total failure here fails open.
 read_revocation_sources() {
+    # BEGIN YYPM_REVOCATION
     cat <<'EOF'
 purainity|https://raw.githubusercontent.com/purainity/keybox-tools/main/res/status.json
 kimmyxyc|https://raw.githubusercontent.com/KimmyXYC/KeyboxChecker/main/res/json/status.json
 google|https://android.googleapis.com/attestation/status
 EOF
+    # END YYPM_REVOCATION
 }
 
 # ---- Resolve tools -------------------------------------------------------
@@ -194,10 +200,29 @@ decode_mbh() {
     [ -s "$2" ]
 }
 
+# hex -> XML, or hex -> base64 -> XML. Used by yypm's hex_base64 feeds
+# (currently tricky_addon, kept off upstream until the URL returns bytes).
+decode_hb64() {
+    [ -n "$HEX2BIN" ] || return 1
+    _d="$TMP/.hb64.$$"
+    tr -d ' \t\r\n' < "$1" > "$_d.hex" 2>/dev/null || return 1
+    $HEX2BIN < "$_d.hex" > "$_d.bin" 2>/dev/null || { rm -f "$_d.hex" "$_d.bin"; return 1; }
+    if grep -q '<?xml' "$_d.bin" 2>/dev/null || grep -q '<AndroidAttestation>' "$_d.bin" 2>/dev/null; then
+        mv -f "$_d.bin" "$2"
+        rm -f "$_d.hex"
+        [ -s "$2" ]
+        return
+    fi
+    $B64DEC < "$_d.bin" > "$2" 2>/dev/null
+    rm -f "$_d.hex" "$_d.bin"
+    [ -s "$2" ]
+}
+
 decode_by_type() {  # decode_by_type <type> <in> <out>
     case "$1" in
         base64) decode_base64 "$2" "$3" ;;
         mbh)    decode_mbh "$2" "$3" ;;
+        hb64)   decode_hb64 "$2" "$3" ;;
         *)      return 1 ;;
     esac
 }

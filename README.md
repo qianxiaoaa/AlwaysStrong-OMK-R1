@@ -66,16 +66,19 @@
 的编码解出 XML，做结构校验（`keybox_check.sh`）与 Google 吊销比对
 （`keybox_revoke_check.sh`，吊销名单本身也从多个镜像拉取），第一个可用者落盘：
 
+<!-- YYPM_SOURCES_TABLE -->
 | 源 | 编码 | 地址 |
 |---|---|---|
 | yurikey | 单层 base64 | `raw.githubusercontent.com/Yurii0307/yurikey/main/key` |
-| integritybox | 10×base64 → hex → rot13 | `raw.githubusercontent.com/MeowDump/MeowDump/.../OptimusPrime` |
+| integritybox | 10×base64 → hex → rot13 | `raw.githubusercontent.com/MeowDump/MeowDump/refs/heads/main/NullVoid/OptimusPrime` |
 | megatron | 10×base64 → hex → rot13 | `raw.githubusercontent.com/MeowDump/MeowDump/main/Megatron` |
+<!-- /YYPM_SOURCES_TABLE -->
 
 - 每份通过两道校验的 key 会存入本地池 `/data/adb/tricky_store/keybox_pool/`（保留最新 5 份）。
 - 当全部上游不可达、全部被吊销或全部解码失败时，自动回滚到池中最新的一份可用 key。
 - 可用 `KEYBOX_SOURCES` 环境变量在最前面追加自定义源，也可用 `KEYBOX_BASE_URL`
   保留旧的单源行为。
+- yypm 的目录型源（KeyboxHub / KeyboxStatus）不导入设备端：设备上没有 GitHub contents API。
 
 ### 本次二改保留的上游修复
 
@@ -178,8 +181,10 @@ sh /data/adb/modules/tricky_store/collect_logs.sh
 依赖：`bash`、`unzip`、`zip`、`curl`（或 `wget`）。
 
 GitHub Actions 每天 **00:00（北京时间）** 检查
-[ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint) 与
-[PlayIntegrityFork](https://github.com/osm0sis/PlayIntegrityFork) 是否有新 Release。
+[ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint)、
+[PlayIntegrityFork](https://github.com/osm0sis/PlayIntegrityFork) 是否有新 Release，
+以及 [yangyang8002/yypm](https://github.com/yangyang8002/yypm) 的
+`php-server/config.php` 源列表是否有变化。
 有更新时自动递增 `-omk-rN`、构建并发布。也可在 Actions 页手动触发 `auto-upstream`。
 
 ---

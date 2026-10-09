@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Nightly / on-demand: if OhMyKeymint or PlayIntegrityFork moved, bump -omk-rN,
-# rebuild the module zip, commit, push, and cut a GitHub Release.
+# Nightly / on-demand: if OhMyKeymint, PlayIntegrityFork, or yypm keybox
+# sources moved, bump -omk-rN, rebuild the module zip, commit, push, and
+# cut a GitHub Release.
 #
 # Used by .github/workflows/auto-upstream.yml. Safe to run locally:
 #   GH_TOKEN=... scripts/auto-release.sh
 #
-# No-op (exit 0) when both pins are already current.
+# No-op (exit 0) when every pin and the yypm source list are already current.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -61,7 +62,7 @@ bash "$ROOT/build.sh"
 ZIP="$ROOT/out/AlwaysStrong-${NEW_VER}.zip"
 [[ -f "$ZIP" ]] || { echo "missing $ZIP" >&2; exit 1; }
 
-git add build.sh module/module.prop README.md NOTICE.md CHANGELOG.md
+git add build.sh module/module.prop module/keybox_fetch.sh README.md NOTICE.md CHANGELOG.md
 git commit -m "chore: 同步上游并发布 ${NEW_VER}
 
 ${NOTES}
