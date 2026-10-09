@@ -177,6 +177,11 @@ sh /data/adb/modules/tricky_store/collect_logs.sh
 
 依赖：`bash`、`unzip`、`zip`、`curl`（或 `wget`）。
 
+GitHub Actions 每天 **00:00（北京时间）** 检查
+[ITxiao6666/OhMyKeymint](https://github.com/ITxiao6666/OhMyKeymint) 与
+[PlayIntegrityFork](https://github.com/osm0sis/PlayIntegrityFork) 是否有新 Release。
+有更新时自动递增 `-omk-rN`、构建并发布。也可在 Actions 页手动触发 `auto-upstream`。
+
 ---
 
 ## 目录结构

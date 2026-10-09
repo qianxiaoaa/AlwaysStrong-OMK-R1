@@ -1,0 +1,30 @@
+name: auto-upstream
+
+on:
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-upstream
+  cancel-in-progress: false
+
+jobs:
+  check-build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check upstream, build, and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_AUTHOR_NAME: 浅笑
+          GIT_AUTHOR_EMAIL: 88584695+qianxiaoaa@users.noreply.github.com
+          GIT_COMMITTER_NAME: 浅笑
+          GIT_COMMITTER_EMAIL: 88584695+qianxiaoaa@users.noreply.github.com
+        run: bash scripts/auto-release.sh
