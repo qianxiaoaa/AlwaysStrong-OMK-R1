@@ -10,7 +10,15 @@
 > （见 `v1.0.4-omk-r11`）。`v1.0.5-tee-r1` 曾短暂切到 TEESimulator-RS，
 > 随后在 `v1.0.5-omk-r2` 切回 OhMyKeymint。
 
+## v1.0.5-omk-r3.2 — 2026-10-10
 
+- 默认 keybox 改为单一源，去掉 yypm 多源池；该源为自签名 HTTPS，拉取时跳过 TLS 校验。
+- 模块内嵌默认 ECDSA keybox，全新安装即可用。
+- 指纹伪装（PIF）全新安装默认关闭；WebUI 打开后才启用。Action 在 `no_auto_fp` 下跳过指纹步骤。
+- 修复 `rom_spoof_block.sh` 禁用标志被 wipe 擦掉。
+- `keybox_check.sh` 接受仅 RSA 或仅 ECDSA 的 keybox。
+
+发行命名 `AlwaysStrong-v1.0.5-omk-r3.2`，`versionCode=105032`。
 
 ## v1.0.5-omk-r3.1 — 2026-10-09
 
