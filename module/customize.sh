@@ -2,6 +2,12 @@
 SKIPUNZIP=1
 MIN_SDK=29
 CONFIG_DIR=/data/adb/tricky_store
+# Fingerprint spoofing (PlayIntegrityFork) is OFF by default: a fresh install
+# ships the no_auto_fp opt-out, so the module does keybox + hardware attestation
+# only until the user enables "Fingerprint" in the WebUI. An upgrade keeps
+# whatever the user already chose (the config dir survives module updates).
+FRESH_CONFIG=0
+[ -d "$CONFIG_DIR" ] || FRESH_CONFIG=1
 
 if [ "$BOOTMODE" != true ]; then
   abort "install from a root manager, not recovery"
@@ -209,6 +215,11 @@ fi
 
 # --- /data/adb/tricky_store config ----------------------------------------
 mkdir -p "$CONFIG_DIR"
+# Fresh install: default fingerprint spoofing OFF (see FRESH_CONFIG above).
+if [ "$FRESH_CONFIG" = 1 ]; then
+  touch "$CONFIG_DIR/no_auto_fp"
+  ui_print "- fingerprint spoof OFF by default (enable in WebUI)"
+fi
 if [ -f "$CONFIG_DIR/keybox.xml" ]; then
   ui_print "keybox kept ($(wc -c < "$CONFIG_DIR/keybox.xml") bytes)"
 else

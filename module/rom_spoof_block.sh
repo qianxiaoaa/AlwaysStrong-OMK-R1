@@ -32,9 +32,20 @@ set_persist() {
     resetprop -n -p "$1" "$2" 2>/dev/null
 }
 
+# Wipe any leftover pihook/pixelprops props the ROM set — keeps the prop table
+# clean of identifiable spoof-engine markers that PI could fingerprint on. This
+# MUST run before the explicit values below: the pattern also matches the
+# disable flags and seeded slots we are about to write, so running it last would
+# delete exactly the props this script exists to set.
+getprop 2>/dev/null | grep -E '(pihook|pixelprops)' | sed 's/^\[\(.*\)\]:.*/\1/' | \
+while IFS= read -r prop; do
+    [ -z "$prop" ] && continue
+    resetprop -p --delete "$prop" 2>/dev/null || true
+done
+
 # Seed empty values for hooks that PihookGMS/EntryHooks read at startup, so
 # the engine sees the slot already occupied and bails instead of writing its
-# own. Skip if already set (don't clobber whatever the ROM has).
+# own.
 for hook in persist.sys.pihooks.first_api_level persist.sys.pihooks.security_patch; do
     resetprop 2>/dev/null | grep -q "$hook" || set_persist "$hook" ""
 done
@@ -42,7 +53,7 @@ done
 # Hard-disable the known ROM spoof toggles. The list + values mirror
 # PlayIntegrityFork's common_setup.sh (osm0sis) exactly, so we cover the same
 # engines PIF does. Any future hook we don't know about gets the persist-prop
-# wipe below as a catch-all.
+# wipe above as a catch-all.
 set_persist persist.sys.pihooks.disable.gms_props                 true
 set_persist persist.sys.pihooks.disable.gms_key_attestation_block true
 set_persist persist.sys.entryhooks_enabled                        false
@@ -53,14 +64,5 @@ set_persist persist.sys.pixelprops.google                         false
 set_persist persist.sys.pixelprops.pi                             false
 set_persist persist.sys.pp.gms                                    false
 set_persist persist.sys.pp.finsky                                 false
-
-# Wipe any leftover pihook/pixelprops props that we didn't explicitly handle
-# — keeps the prop table clean of identifiable spoof-engine markers that PI
-# could fingerprint on.
-getprop 2>/dev/null | grep -E '(pihook|pixelprops)' | sed 's/^\[\(.*\)\]:.*/\1/' | \
-while IFS= read -r prop; do
-    [ -z "$prop" ] && continue
-    resetprop -p --delete "$prop" 2>/dev/null || true
-done
 
 exit 0

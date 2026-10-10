@@ -182,8 +182,12 @@ cp "$OMK_X/libs/$OMK_ABI/keymint" "$STAGE/libs/$OMK_ABI/keymint"
 cp "$OMK_X/libs/$OMK_ABI/inject"  "$STAGE/libs/$OMK_ABI/inject"
 cp "$OMK_X/injector.toml"         "$STAGE/injector.toml"
 
-# Default keybox, used only when the user has none of their own.
-[ -f "$OMK_X/keybox.xml" ] && cp "$OMK_X/keybox.xml" "$STAGE/keybox.xml"
+# Default keybox: module/keybox.xml (already staged) takes precedence over
+# the OhMyKeymint payload template. Only fall back to the payload when the
+# module did not ship one.
+if [ ! -f "$STAGE/keybox.xml" ] && [ -f "$OMK_X/keybox.xml" ]; then
+    cp "$OMK_X/keybox.xml" "$STAGE/keybox.xml"
+fi
 ok "staged OhMyKeymint payload ($OMK_ABI)"
 
 # ---------- 3) PlayIntegrityFork payload ----------

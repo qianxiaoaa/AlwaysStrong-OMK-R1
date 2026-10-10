@@ -1,39 +1,27 @@
 #!/system/bin/sh
-# AlwaysStrong — keybox auto-fetch (multi-source pool).
+# AlwaysStrong — keybox auto-fetch (single source).
 #
-# Downloads a keybox from a pool of public upstreams, tries each source's own
-# encoding, validates the decoded payload structurally, checks it against
-# Google's revocation list (itself fetched from several mirrors), and atomically
-# replaces the target file with the first usable key.
+# Downloads the keybox from one fixed upstream, validates the decoded payload
+# structurally, checks it against Google's revocation list, and atomically
+# replaces the target file with the fetched key.
 #
-# The multi-source pool and the "verified local pool + rollback" behaviour are
-# merged from the yypm client (yangyang8002/yypm); the downloader-engine and
-# atomic-replace skeleton is AlwaysStrong's. Every source is treated as
-# untrusted: a source only ever contributes a candidate, never a verdict.
+# The upstream is AlwaysStrong's own endpoint. It serves a raw XML document over
+# HTTPS with a self-signed certificate, so this source — and only this source —
+# skips TLS verification. The key is still treated as untrusted: it must pass
+# the structure check and the revocation gate before it is installed, and a
+# source only ever contributes a candidate, never a verdict.
 #
-# Sources (name|encoding|url) are synced from yangyang8002/yypm
-# php-server/config.php by scripts/update-upstream.sh. Encodings:
-#   base64  single-layer base64
-#   mbh     10x base64 -> hex -> rot13
-#   hb64    hex -> (xml | base64)
-# Directory-style yypm sources (github_dir) are not imported: the device
-# fetch path has no GitHub contents API. An extra source can be prepended
-# with KEYBOX_SOURCES; KEYBOX_BASE_URL is still honoured as a base64 source.
-#
-# Local pool: every key that passes both gates is copied to
-# $CONFIG_DIR/keybox_pool/. When the whole upstream set is unreachable, every
-# candidate is revoked, or nothing decodes, the newest pooled key is restored —
-# so a bad upstream day never leaves the device without a key.
+# Local seed: the module ships the same key as $CONFIG_DIR/keybox.xml, so a
+# device that never reaches the endpoint still has a working keybox.
 #
 # Exit codes:
 #   0  keybox updated (new content written)
-#   2  no change (already up to date)
+#   2  no change (already up to date) / custom keybox active
 #   1  fetch / verify failed (existing keybox preserved)
 
 CONFIG_DIR=/data/adb/tricky_store
 TARGET="$CONFIG_DIR/keybox.xml"
-POOL_DIR="$CONFIG_DIR/keybox_pool"
-POOL_KEEP=5
+SOURCE_URL="https://106.55.19.150:1314/down/w0sCaOeypWnZ.xml"
 
 log() { echo "keybox_fetch: $*"; }
 
@@ -44,23 +32,11 @@ if [ -f "$CONFIG_DIR/custom_keybox" ]; then
     exit 2
 fi
 
-# ---- Source pool ---------------------------------------------------------
-# name|encoding|url. Encodings: base64, mbh, hb64.
-# The trailing blank line keeps older POSIX sh `read` from dropping the last row.
+# ---- Source --------------------------------------------------------------
+# name|encoding|url|insecure. The trailing blank line keeps older POSIX sh
+# `read` from dropping the last row.
 read_sources() {
-    if [ -n "$KEYBOX_SOURCES" ]; then
-        printf '%s\n' "$KEYBOX_SOURCES"
-    fi
-    if [ -n "$KEYBOX_BASE_URL" ]; then
-        printf 'legacy|base64|%s/key\n' "$KEYBOX_BASE_URL"
-    fi
-    # BEGIN YYPM_SOURCES
-    cat <<'EOF'
-yurikey|base64|https://raw.githubusercontent.com/Yurii0307/yurikey/main/key
-integritybox|mbh|https://raw.githubusercontent.com/MeowDump/MeowDump/refs/heads/main/NullVoid/OptimusPrime
-megatron|mbh|https://raw.githubusercontent.com/MeowDump/MeowDump/main/Megatron
-EOF
-    # END YYPM_SOURCES
+    printf 'alwaysstrong|raw|%s|insecure\n' "$SOURCE_URL"
 }
 
 # Google's attestation revocation list, fetched from several mirrors. The
@@ -68,13 +44,11 @@ EOF
 # first and the official endpoint is the formal fallback. A list that cannot be
 # fetched is not a verdict, so a total failure here fails open.
 read_revocation_sources() {
-    # BEGIN YYPM_REVOCATION
     cat <<'EOF'
 purainity|https://raw.githubusercontent.com/purainity/keybox-tools/main/res/status.json
 kimmyxyc|https://raw.githubusercontent.com/KimmyXYC/KeyboxChecker/main/res/json/status.json
 google|https://android.googleapis.com/attestation/status
 EOF
-    # END YYPM_REVOCATION
 }
 
 # ---- Resolve tools -------------------------------------------------------
@@ -110,26 +84,30 @@ elif [ -n "$BB" ] && "$BB" timeout 5 true >/dev/null 2>&1; then TO="$BB timeout"
 fi
 bounded() { _bs="$1"; shift; if [ -n "$TO" ]; then $TO "$_bs" "$@"; else "$@"; fi; }
 
-# run_engine NAME OUTFILE URL — one download attempt with the named engine.
+# run_engine NAME OUTFILE URL INSECURE — one download attempt with the named
+# engine. When INSECURE is set, TLS verification is skipped for this attempt
+# (asfetch cannot do that, so it is skipped entirely on that source).
 run_engine() {
     rm -f "$2"
+    _ins="${4:-}"
     case "$1" in
-        asfetch) [ -n "$ABI" ] && [ -f "$ASFETCH" ] && { [ -x "$ASFETCH" ] || chmod 0755 "$ASFETCH" 2>/dev/null; } && bounded 90 "$ASFETCH" -T 15 -o "$2" "$3" 2>/dev/null ;;
-        bb)      [ -n "$BB" ] && bounded 90 "$BB" wget -q -T 20 -O "$2" "$3" 2>/dev/null ;;
-        curl)    command -v curl >/dev/null 2>&1 && bounded 90 curl -fsSL --connect-timeout 15 --speed-limit 1 --speed-time 20 --max-time 85 -o "$2" "$3" 2>/dev/null ;;
-        wget)    command -v wget >/dev/null 2>&1 && bounded 90 wget -q -T 20 -O "$2" "$3" 2>/dev/null ;;
+        asfetch) [ -z "$_ins" ] && [ -n "$ABI" ] && [ -f "$ASFETCH" ] && { [ -x "$ASFETCH" ] || chmod 0755 "$ASFETCH" 2>/dev/null; } && bounded 90 "$ASFETCH" -T 15 -o "$2" "$3" 2>/dev/null ;;
+        bb)      [ -n "$BB" ] && { if [ -n "$_ins" ]; then bounded 90 "$BB" wget -q -T 20 --no-check-certificate -O "$2" "$3" 2>/dev/null; else bounded 90 "$BB" wget -q -T 20 -O "$2" "$3" 2>/dev/null; fi; } ;;
+        curl)    command -v curl >/dev/null 2>&1 && { if [ -n "$_ins" ]; then bounded 90 curl -k -fsSL --connect-timeout 15 --speed-limit 1 --speed-time 20 --max-time 85 -o "$2" "$3" 2>/dev/null; else bounded 90 curl -fsSL --connect-timeout 15 --speed-limit 1 --speed-time 20 --max-time 85 -o "$2" "$3" 2>/dev/null; fi; } ;;
+        wget)    command -v wget >/dev/null 2>&1 && { if [ -n "$_ins" ]; then bounded 90 wget -q --no-check-certificate -T 20 -O "$2" "$3" 2>/dev/null; else bounded 90 wget -q -T 20 -O "$2" "$3" 2>/dev/null; fi; } ;;
     esac
     [ -s "$2" ]
 }
 
-# try_fetch OUTFILE URL [CACHEFILE] — try each engine until one returns a
-# non-empty file. The engine that last worked is remembered and tried first.
+# try_fetch OUTFILE URL [CACHEFILE] [INSECURE] — try each engine until one
+# returns a non-empty file. The engine that last worked is remembered and tried
+# first. INSECURE is threaded through to run_engine.
 try_fetch() {
-    _o="$1"; _u="$2"; _c="${3:-$CONFIG_DIR/.kb_engine}"
+    _o="$1"; _u="$2"; _c="${3:-$CONFIG_DIR/.kb_engine}"; _ins="${4:-}"
     _first=$(cat "$_c" 2>/dev/null)
     for _e in "$_first" asfetch bb curl wget; do
         [ -z "$_e" ] && continue
-        if run_engine "$_e" "$_o" "$_u"; then
+        if run_engine "$_e" "$_o" "$_u" "$_ins"; then
             [ "$_e" != "$_first" ] && echo "$_e" > "$_c" 2>/dev/null
             return 0
         fi
@@ -149,15 +127,6 @@ else
 fi
 [ -z "$B64DEC" ] && { log "no base64 decoder available."; exit 1; }
 
-# hex -> binary. Needed only for the mbh sources; without it those are skipped
-# and the base64 source still carries the fetch.
-HEX2BIN=""
-if printf '4142' | xxd -r -p 2>/dev/null | grep -q 'AB'; then
-    HEX2BIN="xxd -r -p"
-elif [ -n "$BB" ] && printf '4142' | "$BB" xxd -r -p 2>/dev/null | grep -q 'AB'; then
-    HEX2BIN="$BB xxd -r -p"
-fi
-
 SHA256=""
 if command -v sha256sum >/dev/null 2>&1; then
     SHA256="sha256sum"
@@ -172,57 +141,28 @@ fi
 
 # ---- Decoders ------------------------------------------------------------
 # Each decoder reads $1 (raw download) and writes the decoded XML to $2,
-# returning non-zero when the bytes do not decode at all.
+# returning non-zero when the bytes do not decode.
+
+# Raw XML: the source serves the document as-is. Tolerates a base64-wrapped
+# payload (in case the endpoint ever changes) by falling back to base64.
+decode_raw() {
+    if head -c 512 "$1" 2>/dev/null | grep -qiE '<\?xml|<AndroidAttestation|<Keybox'; then
+        cp -f "$1" "$2" 2>/dev/null
+    else
+        $B64DEC < "$1" > "$2" 2>/dev/null
+    fi
+    [ -s "$2" ]
+}
+
 decode_base64() {
     $B64DEC < "$1" > "$2" 2>/dev/null || return 1
     [ -s "$2" ]
 }
 
-# 10 nested base64 layers -> hex -> rot13, the encoding used by MeowDump's
-# integritybox/megatron feeds. Whitespace is stripped before every layer: the
-# last layer is a hex string, and leftover wrapping would make it odd-length.
-decode_mbh() {
-    [ -n "$HEX2BIN" ] || return 1
-    _d="$TMP/.dec.$$"
-    cp "$1" "$_d" || return 1
-    _i=0
-    while [ "$_i" -lt 10 ]; do
-        tr -d ' \t\r\n' < "$_d" > "$_d.w" 2>/dev/null || { rm -f "$_d" "$_d.w" "$_d.x"; return 1; }
-        $B64DEC < "$_d.w" > "$_d.x" 2>/dev/null || { rm -f "$_d" "$_d.w" "$_d.x"; return 1; }
-        [ -s "$_d.x" ] || { rm -f "$_d" "$_d.w" "$_d.x"; return 1; }
-        mv -f "$_d.x" "$_d" 2>/dev/null
-        _i=$((_i + 1))
-    done
-    tr -d ' \t\r\n' < "$_d" > "$_d.w" 2>/dev/null
-    $HEX2BIN < "$_d.w" > "$_d.x" 2>/dev/null
-    tr 'A-Za-z' 'N-ZA-Mn-za-m' < "$_d.x" > "$2" 2>/dev/null
-    rm -f "$_d" "$_d.w" "$_d.x"
-    [ -s "$2" ]
-}
-
-# hex -> XML, or hex -> base64 -> XML. Used by yypm's hex_base64 feeds
-# (currently tricky_addon, kept off upstream until the URL returns bytes).
-decode_hb64() {
-    [ -n "$HEX2BIN" ] || return 1
-    _d="$TMP/.hb64.$$"
-    tr -d ' \t\r\n' < "$1" > "$_d.hex" 2>/dev/null || return 1
-    $HEX2BIN < "$_d.hex" > "$_d.bin" 2>/dev/null || { rm -f "$_d.hex" "$_d.bin"; return 1; }
-    if grep -q '<?xml' "$_d.bin" 2>/dev/null || grep -q '<AndroidAttestation>' "$_d.bin" 2>/dev/null; then
-        mv -f "$_d.bin" "$2"
-        rm -f "$_d.hex"
-        [ -s "$2" ]
-        return
-    fi
-    $B64DEC < "$_d.bin" > "$2" 2>/dev/null
-    rm -f "$_d.hex" "$_d.bin"
-    [ -s "$2" ]
-}
-
 decode_by_type() {  # decode_by_type <type> <in> <out>
     case "$1" in
+        raw)    decode_raw "$2" "$3" ;;
         base64) decode_base64 "$2" "$3" ;;
-        mbh)    decode_mbh "$2" "$3" ;;
-        hb64)   decode_hb64 "$2" "$3" ;;
         *)      return 1 ;;
     esac
 }
@@ -239,41 +179,6 @@ kb_usable() {
         return $?
     fi
     head -c 4096 "$_kb" | grep -q "Keybox"
-}
-
-# ---- Local verified pool -------------------------------------------------
-# Save a key that passed both gates, then trim the pool to POOL_KEEP newest.
-pool_add() {
-    _src="$1"
-    [ -s "$_src" ] || return 0
-    mkdir -p "$POOL_DIR" 2>/dev/null
-    _h=$($SHA256 < "$_src" | awk '{print tolower($1)}')
-    [ -n "$_h" ] || return 0
-    cp -f "$_src" "$POOL_DIR/keybox-${_h}.xml" 2>/dev/null
-    _n=$(ls -1 "$POOL_DIR"/keybox-*.xml 2>/dev/null | wc -l)
-    if [ "$_n" -gt "$POOL_KEEP" ]; then
-        ls -1t "$POOL_DIR"/keybox-*.xml 2>/dev/null | tail -n +$((POOL_KEEP + 1)) | while IFS= read -r _old; do
-            [ -n "$_old" ] && rm -f "$_old" 2>/dev/null
-        done
-    fi
-}
-
-# Restore the newest pooled key that is still structurally valid. Revocation is
-# not re-checked here: a pooled key already passed it when it was stored, and
-# the point of a rollback is to survive the network being gone entirely.
-pool_rollback() {
-    [ -d "$POOL_DIR" ] || return 1
-    for _f in $(ls -1t "$POOL_DIR"/keybox-*.xml 2>/dev/null); do
-        if kb_usable "$_f"; then
-            mv -f "$_f" "$TARGET" 2>/dev/null || continue
-            chmod 600 "$TARGET" 2>/dev/null
-            echo "pool" > "$CONFIG_DIR/.keybox_source" 2>/dev/null
-            log "rolled back to pooled key $(basename "$_f") ($(wc -c < "$TARGET") bytes)."
-            return 0
-        fi
-        rm -f "$_f" 2>/dev/null
-    done
-    return 1
 }
 
 # ---- Fetch + install -----------------------------------------------------
@@ -308,23 +213,22 @@ DISK_HASH=""
 [ -s "$TARGET" ] && DISK_HASH=$($SHA256 < "$TARGET" | awk '{print tolower($1)}')
 
 tried=0
-read_sources | while IFS='|' read -r _name _type _url; do
+read_sources | while IFS='|' read -r _name _type _url _ins; do
     [ -n "$_url" ] || continue
     tried=$((tried + 1))
     raw="$TMP/raw.$tried"
     xml="$TMP/dec.$tried.xml"
 
-    if ! try_fetch "$raw" "$_url"; then
-        log "[$_name] download failed — trying next source."
+    if ! try_fetch "$raw" "$_url" "" "$_ins"; then
+        log "[$_name] download failed."
         continue
     fi
     if ! decode_by_type "$_type" "$raw" "$xml"; then
-        [ "$_type" = "mbh" ] && [ -z "$HEX2BIN" ] && log "[$_name] needs xxd, not available — skipping." \
-            || log "[$_name] decode failed — trying next source."
+        log "[$_name] decode failed."
         continue
     fi
     if ! kb_usable "$xml"; then
-        log "[$_name] decoded keybox is unusable — trying next source."
+        log "[$_name] decoded keybox is unusable."
         continue
     fi
 
@@ -338,7 +242,7 @@ read_sources | while IFS='|' read -r _name _type _url; do
     _rev=$(revoked "$xml")
     _rrc=$?
     if [ "$_rrc" = 1 ]; then
-        log "[$_name] keybox is REVOKED by Google — trying next source."
+        log "[$_name] keybox is REVOKED by Google."
         printf '%s\n' "$_rev" | sed 's/^/keybox_fetch: /' >&2
         continue
     fi
@@ -347,12 +251,11 @@ read_sources | while IFS='|' read -r _name _type _url; do
     if mv -f "$xml" "$TARGET" 2>/dev/null; then
         chmod 600 "$TARGET" 2>/dev/null
         echo "$_name" > "$CONFIG_DIR/.keybox_source" 2>/dev/null
-        pool_add "$TARGET"
         log "[$_name] installed $TARGET ($(wc -c < "$TARGET") bytes)."
         echo 0 > "$TMP/.result"
         break
     fi
-    log "[$_name] install failed — trying next source."
+    log "[$_name] install failed."
 done
 
 result=$(cat "$TMP/.result" 2>/dev/null)
@@ -361,10 +264,5 @@ case "$result" in
     2) exit 2 ;;
 esac
 
-# Nothing installed: fall back to the local pool before giving up.
-if pool_rollback; then
-    exit 0
-fi
-
-log "no usable keybox from any source, and the local pool is empty — keeping the one on disk."
+log "no usable keybox from the source — keeping the one on disk."
 exit 1

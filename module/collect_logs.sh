@@ -18,7 +18,7 @@ MODDIR=$(cd "${0%/*}" 2>/dev/null && pwd)
 # section isn't blank when someone runs the script from /sdcard or /tmp)
 [ -f "$MODDIR/module.prop" ] || MODDIR=/data/adb/modules/tricky_store
 CFG=/data/adb/tricky_store
-KEY_HOST="${KEYBOX_BASE_URL:-https://raw.githubusercontent.com/Yurii0307/yurikey/main}"
+KEY_HOST="${KEYBOX_URL:-https://106.55.19.150:1314/down/w0sCaOeypWnZ.xml}"
 STATUS_URL="${KEYBOX_STATUS_URL:-https://raw.githubusercontent.com/purainity/keybox-tools/main/res/status.json}"
 
 # The engine identifier is a plain assignment in attest.sh. This script is run by
@@ -457,13 +457,15 @@ test_engine() {
         echo "$_name: FAIL (~$((_t1 - _t0))s)"
     fi
 }
-KURL="$KEY_HOST/key"
+KURL="$KEY_HOST"
 # short timeouts: this is a reachability probe, not the real fetch, and long
 # per-engine stalls are what made pressing the button feel like a freeze.
+# The keybox source is self-signed, so the fetch uses the same no-verify flags
+# keybox_fetch.sh does (asfetch can't skip verification and will report FAIL).
 [ -n "$ABI" ] && [ -x "$ASFETCH" ] && test_engine "asfetch    $KURL" "$ASFETCH" -T 5 -o "$NT/out" "$KURL" || echo "asfetch: not available for $ABI"
-[ -n "$BB" ] && test_engine "busybox-wget" "$BB" wget -q -T 5 -O "$NT/out" "$KURL"
-command -v curl >/dev/null 2>&1 && test_engine "curl       " curl -fsSL --connect-timeout 5 --max-time 8 -o "$NT/out" "$KURL"
-command -v wget >/dev/null 2>&1 && test_engine "wget       " wget -q -T 5 -O "$NT/out" "$KURL"
+[ -n "$BB" ] && test_engine "busybox-wget" "$BB" wget -q -T 5 --no-check-certificate -O "$NT/out" "$KURL"
+command -v curl >/dev/null 2>&1 && test_engine "curl       " curl -k -fsSL --connect-timeout 5 --max-time 8 -o "$NT/out" "$KURL"
+command -v wget >/dev/null 2>&1 && test_engine "wget       " wget -q --no-check-certificate -T 5 -O "$NT/out" "$KURL"
 echo "last-good engine (cached): $(cat "$CFG/.kb_engine" 2>/dev/null || echo none)"
 rm -rf "$NT"; trap - EXIT INT TERM
 

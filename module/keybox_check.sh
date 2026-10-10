@@ -15,8 +15,9 @@
 # The checks below mirror what keymint enforces, in the order it complains:
 #   * <AndroidAttestation> root carrying a <Keybox>
 #   * <NumberOfKeyboxes> >= 1
-#   * at least one <Key algorithm="rsa">  — without an RSA entry keymint logs
-#     "missing RSA key entry in keybox.xml" and rejects the whole file
+#   * at least one supported <Key> (algorithm "rsa" or "ecdsa") — keymint needs
+#     a key it can use ("neither an RSA nor an EC key entry") and rejects the
+#     whole file without one. An ECDSA-only keybox is fine.
 #   * every <Key> carries a <PrivateKey> with a PEM block and a
 #     <CertificateChain> holding at least one certificate
 #
@@ -59,7 +60,7 @@ fi
 # checks are driven by the BEGIN markers rather than by counting elements.
 PROBLEMS=$(
 awk '
-    BEGIN { root = 0; kb = 0; nkb = ""; keys = 0; rsa = 0; certs = 0; bad = 0
+    BEGIN { root = 0; kb = 0; nkb = ""; keys = 0; rsa = 0; ec = 0; certs = 0; bad = 0
             inkey = 0; inpk = 0; incc = 0 }
 
     function err(m) { print m; bad++ }
@@ -96,6 +97,7 @@ awk '
     inkey && /<\/Key>/ {
         keys++
         if (algo == "rsa") rsa++
+        else if (algo == "ecdsa") ec++
         if (!pk)             err("algorithm=\"" algo "\": no <PrivateKey>")
         else if (!pkpem)     err("algorithm=\"" algo "\": <PrivateKey> has no PEM block")
         if (!cc)             err("algorithm=\"" algo "\": no <CertificateChain>")
@@ -109,8 +111,8 @@ awk '
         if (nkb == "")          err("no <NumberOfKeyboxes>")
         else if (nkb + 0 < 1)   err("<NumberOfKeyboxes> is " nkb)
         if (keys == 0) err("no <Key> entry at all")
-        if (keys > 0 && rsa == 0)
-            err("no <Key algorithm=\"rsa\"> entry — keymint rejects the whole file without one")
+        if (keys > 0 && rsa == 0 && ec == 0)
+            err("no RSA or EC <Key> entry — keymint rejects the whole file without one")
         if (certs == 0) err("no certificate anywhere in the file")
         exit (bad > 0 ? 1 : 0)
     }

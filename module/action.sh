@@ -7,6 +7,7 @@ case "$0" in
     *)   MODPATH="$PWD" ;;
 esac
 [ -z "$MODPATH" ] && MODPATH="$PWD"
+export MODPATH
 cd "$MODPATH" 2>/dev/null
 
 set +o standalone 2>/dev/null
@@ -209,6 +210,12 @@ case "$_synced" in
                  row "🛡️" "attestation + keybox only" ;;
 esac
 sleep 1
+elif [ -f "$CONFIG_DIR/no_auto_fp" ]; then
+# Fingerprint spoofing is OFF by default (WebUI: Fingerprint). Nothing to fetch
+# or enforce while it is off — the keybox and the attestation engine still run.
+row "🚫" "fingerprint spoof disabled"
+row "ℹ️" "enable Fingerprint in WebUI"
+sleep 1
 else
 # --- Step 3: Fingerprint ---
 # Three sources, tried in order: our native crawl, upstream's own fetcher, then
@@ -312,7 +319,7 @@ bounded 45 am force-stop com.android.vending >/dev/null 2>&1
 # Status indicator — network again, and it runs right before "done": this is
 # the call that froze the Action for good whenever asfetch hung.
 if [ -x "$MODPATH/status_fetch.sh" ]; then
-    MODPATH="$MODPATH" bounded 150 sh "$MODPATH/status_fetch.sh" manual >/dev/null 2>&1
+    bounded 150 sh "$MODPATH/status_fetch.sh" manual >/dev/null 2>&1
 fi
 
 # --- WebUI: Magisk only (background, silent) ---
